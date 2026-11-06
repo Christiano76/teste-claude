@@ -101,6 +101,17 @@ tests/                      testes Vitest com títulos reais coletados
 
 **Para adicionar uma fonte:** implemente a interface `Connector` (`src/lib/connectors/types.ts`) e registre-a em `registry.ts`.
 
+## Versão publicada (retrato estático)
+
+https://claude.ai/artifact/Wx3XNCcTvreH3Co6ocW1j7 é um retrato da coleta real de 06/11/2026 (1.468 ofertas), com busca, filtros, Garimpo Extremo, radar, análise e favoritos no navegador. Para gerá-lo de novo:
+
+```bash
+npm run refresh -- 4
+npx tsx scripts/export-snapshot.ts snapshot
+python3 scripts/snapshot-images.py && python3 scripts/snapshot-shrink.py   # miniaturas em WebP
+# publique snapshot/index.html com snapshot/data.json e snapshot/img.json
+```
+
 ## Como rodar
 
 ```bash

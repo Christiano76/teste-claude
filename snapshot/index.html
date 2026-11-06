@@ -1,0 +1,554 @@
+<title>PC Hunter</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: barra fixa com abas; faixa GARIMPO EXTREMO; filtros à esquerda (gaveta no celular); grade de cards; análise em painel lateral */
+:root {
+  color-scheme: dark;
+  --bg: #07090d; --surface: #0e1218; --surface-2: #141a22; --line: #1f2732; --line-strong: #2c3644;
+  --fg: #e7ecf2; --muted: #8b97a8; --faint: #5d6878; --accent: #2ee6c5; --accent-2: #5b8cff;
+  --good: #34d399; --mid: #fbbf24; --bad: #fb7185; --img: #f4f6f8; --on-accent: #04110e;
+  --display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 14px/1.5 var(--body);
+  background-image: radial-gradient(1100px 480px at 90% -10%, rgba(46,230,197,.07), transparent 60%), radial-gradient(900px 400px at -10% 0%, rgba(91,140,255,.07), transparent 60%); background-attachment: fixed; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+a { color: inherit; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wrap { max-width: 1280px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.num { font-variant-numeric: tabular-nums; }
+
+header.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: rgba(7,9,13,.88); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+header.top .wrap { display: flex; align-items: center; gap: 16px; min-height: 58px; flex-wrap: wrap; padding-block: 8px; }
+.brand { display: flex; align-items: center; gap: 9px; font: 700 18px var(--display); text-decoration: none; }
+.brand b { color: var(--accent); }
+nav.tabs { display: flex; gap: 2px; flex-wrap: wrap; }
+nav.tabs a { text-decoration: none; padding: 6px 11px; border-radius: 9px; color: var(--muted); font-weight: 500; }
+nav.tabs a:hover { color: var(--fg); }
+nav.tabs a[aria-current="page"] { background: var(--surface-2); color: var(--fg); }
+nav.tabs a.gar { color: var(--accent); }
+.stamp { margin-left: auto; font: 12px var(--mono); color: var(--faint); }
+
+.hero { padding-block: 26px 6px; display: grid; gap: 10px; }
+.hero h1 { font: 700 clamp(26px, 4vw, 40px)/1.1 var(--display); margin: 0; text-wrap: balance; }
+.hero p { margin: 0; color: var(--muted); max-width: 72ch; }
+.notice { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--line-strong); background: var(--surface); border-radius: 12px; padding: 10px 14px; font-size: 13px; color: var(--muted); }
+.notice strong { color: var(--fg); font-weight: 600; }
+.notice .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); margin-top: 6px; flex: none; box-shadow: 0 0 0 4px rgba(52,211,153,.15); }
+.notice details { margin-top: 4px; }
+.notice summary { cursor: pointer; color: var(--accent); }
+
+.garimpo { width: 100%; text-align: left; border: 1px solid var(--line); background: var(--surface); border-radius: 14px; padding: 14px 16px; cursor: pointer; display: grid; gap: 4px; transition: border-color .15s, background .15s; }
+.garimpo:hover { border-color: rgba(46,230,197,.5); }
+.garimpo[aria-pressed="true"] { border-color: var(--accent); background: rgba(46,230,197,.08); }
+.garimpo b { font: 700 16px var(--display); letter-spacing: .08em; color: var(--accent); }
+.garimpo span { font-size: 12.5px; color: var(--muted); }
+
+.layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 24px; padding-block: 16px 60px; }
+aside.filters { display: grid; gap: 18px; align-content: start; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 74px); max-height: calc(100vh - 90px); overflow-y: auto; padding-right: 4px; }
+.flabel { font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--faint); margin-bottom: 7px; display: block; }
+.input { width: 100%; background: var(--surface-2); border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; font-size: 13.5px; outline: none; }
+.input:focus { border-color: var(--accent); }
+.input::placeholder { color: var(--faint); }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.seg { display: flex; flex-wrap: wrap; gap: 5px; }
+.seg button { border: 1px solid var(--line); background: transparent; color: var(--muted); border-radius: 8px; padding: 4px 9px; font-size: 12px; cursor: pointer; }
+.seg button:hover { color: var(--fg); }
+.seg button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: rgba(46,230,197,.06); }
+.check { display: flex; gap: 8px; align-items: center; cursor: pointer; font-size: 13.5px; }
+.check input { accent-color: var(--accent); }
+.check .n { margin-left: auto; color: var(--faint); font-size: 12px; }
+.checks { display: grid; gap: 6px; }
+.link { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font-size: 13px; justify-self: start; }
+.fine { font-size: 11.5px; color: var(--faint); margin: 0; }
+
+.bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.bar .count { color: var(--muted); font-size: 13px; }
+.bar .search { display: flex; gap: 8px; flex: 1 1 280px; max-width: 460px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 9px; padding: 8px 14px; font-weight: 600; font-size: 13.5px; cursor: pointer; text-decoration: none; border: 1px solid transparent; transition: background .15s, border-color .15s, color .15s; }
+.btn-primary { background: var(--accent); color: var(--on-accent); }
+.btn-primary:hover { background: #5ff0d6; }
+.btn-ghost { border-color: var(--line-strong); background: transparent; }
+.btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+.only-mobile { display: none; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); gap: 14px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; transition: border-color .15s; animation: rise .3s ease-out both; }
+.card:hover { border-color: var(--line-strong); }
+.card.top { border-color: rgba(46,230,197,.45); }
+@keyframes rise { from { opacity: .4; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.thumb { position: relative; background: var(--img); aspect-ratio: 4 / 3; max-width: 100%; display: grid; place-items: center; cursor: pointer; border: 0; padding: 0; width: 100%; }
+.thumb img { max-width: 82%; max-height: 86%; object-fit: contain; }
+.noimg { color: #8a94a3; font-size: 12px; }
+.badges { position: absolute; top: 8px; left: 8px; right: 8px; display: flex; flex-wrap: wrap; gap: 4px; }
+.badge { font: 600 10.5px var(--body); padding: 2px 7px; border-radius: 99px; background: rgba(7,9,13,.84); color: var(--good); }
+.badge.gar { background: var(--accent); color: var(--on-accent); }
+.badge.kit { color: var(--accent-2); }
+.badge.bad { color: var(--bad); }
+.cbody { padding: 14px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+.chead { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.score { display: flex; align-items: center; gap: 9px; }
+.ring { position: relative; flex: none; }
+.ring svg { transform: rotate(-90deg); display: block; }
+.ring span { position: absolute; inset: 0; display: grid; place-items: center; font: 700 16px var(--display); }
+.verdict { font-size: 12px; font-weight: 600; line-height: 1.2; }
+.fav { border: 1px solid var(--line); background: transparent; border-radius: 9px; width: 36px; height: 36px; display: grid; place-items: center; cursor: pointer; color: var(--muted); flex: none; }
+.fav[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+.minis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; text-align: center; }
+.mini { background: var(--surface-2); border-radius: 9px; padding: 5px 2px; }
+.mini b { display: block; font: 700 15px var(--display); }
+.mini small { display: block; font-size: 10px; color: var(--faint); line-height: 1.2; }
+.ctitle { font-weight: 500; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; background: none; border: 0; padding: 0; text-align: left; }
+.ctitle:hover { color: var(--accent); }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { font-size: 11.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; white-space: nowrap; }
+.chip.cond { color: var(--accent-2); border-color: rgba(91,140,255,.4); }
+.chip.risk { border-color: currentColor; }
+.tier { font-size: 12px; color: var(--muted); margin: 0; }
+.price { display: flex; justify-content: space-between; align-items: flex-end; gap: 8px; margin-top: auto; }
+.price .old { font-size: 12px; color: var(--faint); text-decoration: line-through; }
+.price .now { font: 700 24px/1.1 var(--display); }
+.price .sub { font-size: 11px; color: var(--muted); }
+.save { font-size: 11.5px; padding: 2px 8px; border-radius: 99px; background: rgba(52,211,153,.12); color: var(--good); white-space: nowrap; font-weight: 600; }
+dl.kv { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; font-size: 12px; color: var(--muted); }
+dl.kv dd { margin: 0; text-align: right; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+dl.kv .faint { color: var(--faint); }
+dl.kv .good { color: var(--good); }
+.warn { font-size: 11.5px; color: var(--mid); margin: 0; }
+.warn.danger { color: var(--bad); }
+.actions { display: flex; gap: 8px; }
+.actions .btn-primary { flex: 1; }
+.more { display: flex; justify-content: center; margin-top: 22px; }
+.empty { border: 1px dashed var(--line-strong); border-radius: 14px; padding: 36px 20px; text-align: center; color: var(--muted); }
+.combo { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: grid; gap: 14px; }
+.combo .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.combo .parts { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.part { display: flex; gap: 12px; min-width: 0; }
+.pimg { width: 76px; height: 76px; flex: none; background: var(--img); border-radius: 10px; display: grid; place-items: center; border: 0; padding: 0; cursor: pointer; }
+.pimg img { max-width: 88%; max-height: 88%; }
+.pinfo { min-width: 0; display: grid; gap: 2px; }
+.plabel { font: 500 10.5px var(--mono); letter-spacing: .07em; text-transform: uppercase; color: var(--faint); }
+.pmeta { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kind { font-size: 11.5px; border-radius: 99px; padding: 2px 9px; border: 1px solid rgba(46,230,197,.35); color: var(--accent); }
+.kind.kit { border-color: rgba(91,140,255,.4); color: var(--accent-2); }
+.insight { border: 1px solid rgba(46,230,197,.3); background: var(--surface); border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; }
+.insight b { color: var(--accent); }
+.stack { display: grid; gap: 14px; }
+.radar h2 { font: 600 17px var(--display); margin: 22px 0 10px; }
+.drop { font-size: 12px; color: var(--good); font-weight: 600; margin: 0 0 4px 4px; }
+
+.scrim { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 40; }
+.panel { position: fixed; top: 0; right: 0; bottom: 0; width: min(640px, 100%); background: var(--bg); border-left: 1px solid var(--line-strong); z-index: 41; overflow-y: auto;
+  padding: calc(env(safe-area-inset-top, 0px) + 16px) max(18px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 28px) 18px; display: grid; gap: 14px; align-content: start; animation: slide .22s ease-out; }
+@keyframes slide { from { transform: translateX(24px); opacity: .6; } to { transform: none; opacity: 1; } }
+.panel .close { justify-self: end; }
+.panel h2 { font: 600 20px/1.3 var(--display); margin: 0; text-wrap: balance; }
+.pimgbig { background: var(--img); border-radius: 14px; aspect-ratio: 16 / 10; max-width: 100%; display: grid; place-items: center; }
+.pimgbig img { max-height: 90%; max-width: 70%; }
+.box { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: grid; gap: 10px; }
+.box h3 { margin: 0; font: 600 15px var(--display); }
+.three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.three div { background: var(--surface-2); border-radius: 10px; padding: 10px; min-width: 0; }
+.three small { display: block; color: var(--faint); font-size: 11px; }
+.three b { display: block; font: 700 24px var(--display); }
+.three p { margin: 2px 0 0; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.meter { display: grid; gap: 3px; }
+.meter .mh { display: flex; justify-content: space-between; font-size: 13px; }
+.meter .mh small { color: var(--faint); font-family: var(--mono); font-size: 11px; }
+.meter .track { height: 6px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+.meter .fill { height: 100%; border-radius: 99px; }
+.meter p { margin: 0; font-size: 12px; color: var(--muted); }
+table.spec { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.spec td { padding: 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.spec tr:last-child td { border-bottom: 0; }
+table.spec td:first-child { color: var(--muted); width: 44%; padding-right: 12px; }
+.unv { color: var(--faint); font-style: italic; }
+.resgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.resgrid div { background: var(--surface-2); border-radius: 10px; padding: 9px; font-size: 13px; }
+.resgrid small { display: block; color: var(--faint); font-family: var(--mono); font-size: 11px; }
+ul.flags { margin: 0; padding: 0; list-style: none; display: grid; gap: 5px; font-size: 13px; }
+.lvl-danger { color: var(--bad); } .lvl-warn { color: var(--mid); } .lvl-info { color: var(--muted); }
+footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--faint); font-size: 12px; text-align: center; }
+.sk { background: linear-gradient(90deg, var(--surface) 0%, var(--surface-2) 50%, var(--surface) 100%); background-size: 200% 100%; animation: sh 1.4s linear infinite; border-radius: 14px; height: 420px; }
+@keyframes sh { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  aside.filters { display: none; position: fixed; inset: 0; z-index: 45; background: var(--bg); max-height: none; padding: calc(env(safe-area-inset-top, 0px) + 16px) max(16px, env(safe-area-inset-right, 0px)) 40px max(16px, env(safe-area-inset-left, 0px)); }
+  aside.filters.open { display: grid; }
+  .only-mobile { display: inline-flex; }
+  .stamp { margin-left: 0; width: 100%; }
+  .three b { font-size: 20px; }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#pc" aria-label="PC Hunter — início">
+      <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#2ee6c5"/><stop offset="1" stop-color="#5b8cff"/></linearGradient></defs><rect x="2" y="2" width="28" height="28" rx="8" fill="none" stroke="url(#lg)" stroke-width="2.5"/><circle cx="15" cy="15" r="6" fill="none" stroke="url(#lg)" stroke-width="2.5"/><path d="M19.5 19.5L25 25" stroke="url(#lg)" stroke-width="2.5" stroke-linecap="round"/></svg>
+      <span>PC <b>Hunter</b></span>
+    </a>
+    <nav class="tabs" aria-label="Seções">
+      <a href="#pc" data-tab="pc">PC Gamer</a>
+      <a href="#pc-monitor" data-tab="pc-monitor">PC + Monitor</a>
+      <a href="#monitor" data-tab="monitor">Monitor</a>
+      <a href="#garimpo" data-tab="garimpo" class="gar">Garimpo Extremo</a>
+      <a href="#radar" data-tab="radar">Radar</a>
+      <a href="#favoritos" data-tab="favoritos">Favoritos</a>
+    </nav>
+    <span class="stamp" id="stamp">carregando dados…</span>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="hero">
+    <h1 id="h1">PC Gamer</h1>
+    <p id="sub">O melhor computador pelo menor preço real — novo, usado, seminovo ou recondicionado.</p>
+    <div class="notice" id="notice"><span class="dot" aria-hidden="true"></span><span>Carregando ofertas…</span></div>
+  </section>
+
+  <div class="layout">
+    <aside class="filters" id="filters" aria-label="Filtros"></aside>
+    <section style="min-width:0">
+      <div id="garBox" style="margin-bottom:14px"></div>
+      <div class="bar" id="bar">
+        <form class="search" id="searchForm">
+          <input class="input" id="q" type="search" placeholder="Ex.: RTX 4060, Ryzen 5 5600, 27 QHD…" aria-label="Buscar nas ofertas">
+          <button class="btn btn-primary" type="submit">Buscar</button>
+        </form>
+        <button class="btn btn-ghost only-mobile" id="openFilters" type="button">Filtros</button>
+        <span class="count num" id="count"></span>
+        <select class="input" id="sort" style="width:auto" aria-label="Ordenar">
+          <option value="score">Melhor nota geral</option>
+          <option value="discount">Maior desconto real</option>
+          <option value="value">Melhor custo-benefício</option>
+          <option value="price">Menor preço</option>
+          <option value="perf">Maior desempenho / qualidade</option>
+        </select>
+      </div>
+      <div id="results"><div class="grid"><div class="sk"></div><div class="sk"></div><div class="sk"></div></div></div>
+    </section>
+  </div>
+</main>
+<footer><div class="wrap">PC Hunter não vende produtos e não garante que um anúncio seja seguro. Preços e estoques foram lidos da fonte na data indicada e podem ter mudado: confira no anúncio original antes de comprar e nunca pague fora da plataforma.</div></footer>
+<div id="panelRoot"></div>
+
+<script>
+(() => {
+  const $ = (s, el = document) => el.querySelector(s);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const brl = (n, d = 0) => n == null ? "—" : n.toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: d, maximumFractionDigits: d });
+  const color = (s) => s == null ? "var(--faint)" : s >= 90 ? "var(--good)" : s >= 75 ? "#a3e635" : s >= 60 ? "var(--mid)" : "var(--bad)";
+  const VERDICT = { excelente: "Excelente oportunidade", "muito-bom": "Muito bom", razoavel: "Razoável", "pouco-recomendado": "Pouco recomendado" };
+  const COND = { novo: "Novo", seminovo: "Seminovo", usado: "Usado", recondicionado: "Recondicionado", mostruario: "Mostruário", "nao-informado": "Não informado" };
+  const RISK = { baixo: ["Baixo risco aparente", "var(--good)"], atencao: ["Atenção", "var(--mid)"], alto: ["Alto risco", "var(--bad)"], insuficiente: ["Informações insuficientes", "var(--muted)"] };
+  const STY = { loja: "A própria loja", profissional: "Vendedor profissional (CNPJ)", "pessoa-fisica": "Pessoa física" };
+  const norm = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const pct = (d) => Math.round(d * 100);
+
+  let D = null, IMG = {}, byId = new Map();
+  const state = { mode: "pc", q: "", sort: "score", shown: 24, f: {}, gar: false };
+  let favs = new Set();
+  try { favs = new Set(JSON.parse(localStorage.getItem("pch_favs") || "[]")); } catch (e) {}
+  const saveFavs = () => { try { localStorage.setItem("pch_favs", JSON.stringify([...favs])); } catch (e) {} };
+
+  const MODES = {
+    pc: { h: "PC Gamer", sub: "Computadores completos novos, usados, seminovos e recondicionados. Identificamos CPU, GPU, RAM, armazenamento, placa-mãe e fonte, estimamos o desempenho e comparamos com anúncios equivalentes." },
+    "pc-monitor": { h: "PC Gamer + Monitor", sub: "Kits com monitor incluso e combinações de anúncios separados, com o custo total e a comparação kit × separado." },
+    monitor: { h: "Monitor", sub: "Monitores novos, usados e recondicionados: resolução, tamanho, painel, frequência e tempo de resposta contra o preço médio de modelos equivalentes." },
+    garimpo: { h: "Garimpo Extremo", sub: "Anúncios pelo menos 20% abaixo da média de anúncios comparáveis no mesmo estado de conservação, com dados suficientes e sem alto risco. Preço baixo de máquina obsoleta não entra." },
+    radar: { h: "Radar", sub: "O que mudou entre as coletas: quedas de preço e anúncios novos." },
+    favoritos: { h: "Favoritos", sub: "Ofertas salvas neste navegador." },
+  };
+
+  function ring(s, size = 48) {
+    const st = size > 60 ? 6 : 4.5, r = (size - st) / 2, c = 2 * Math.PI * r;
+    return `<div class="ring" style="width:${size}px;height:${size}px"><svg width="${size}" height="${size}" aria-hidden="true"><circle cx="${size/2}" cy="${size/2}" r="${r}" stroke="var(--line)" stroke-width="${st}" fill="none"/><circle cx="${size/2}" cy="${size/2}" r="${r}" stroke="${color(s)}" stroke-width="${st}" fill="none" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${c * (1 - s / 100)}"/></svg><span style="color:${color(s)};${size > 60 ? "font-size:24px" : ""}">${s}</span></div>`;
+  }
+  const img = (o) => IMG[o.id] ? `<img src="${IMG[o.id]}" alt="" loading="lazy">` : `<span class="noimg">sem imagem</span>`;
+  const stoText = (sto) => (sto || []).map((s) => `${s.gb >= 1000 ? s.gb / 1000 + " TB" : s.gb + " GB"} ${s.type === "nvme" ? "NVMe" : s.type === "ssd" ? "SSD" : s.type === "hdd" ? "HD" : ""}`.trim()).join(" + ");
+  function specChips(o) {
+    if (o.c === "monitor" && o.mon) { const m = o.mon; return [m.size && m.size + '"', m.res, m.hz && m.hz + " Hz", m.panel, m.ms != null && m.ms + " ms", m.sync].filter(Boolean); }
+    const p = o.pc; if (!p) return [];
+    return [(p.cpu || "CPU ?").replace(/\s*\(.*\)$/, ""), p.gpu ? p.gpu.replace(/\s*\(presumido.*\)$/, " (integrada)") : "GPU não informada", p.ram ? `${p.ram} GB${p.rt ? " " + p.rt : ""}` : "RAM ?", stoText(p.sto) || "armazenamento ?", p.psu && p.psu.watts ? `Fonte ${p.psu.watts} W${p.psu.rating ? " " + p.psu.rating.replace("80 Plus", "80+") : ""}` : null].filter(Boolean);
+  }
+  const verified = (o) => new Date(o.chk).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+  const mini = (label, v) => `<div class="mini"><b class="num" style="color:${color(v)}">${v ?? "—"}</b><small>${label}</small></div>`;
+
+  function card(o, i) {
+    const warns = o.flags.filter((f) => f[0] !== "info").slice(0, 2);
+    const save = o.mk.sv != null && o.mk.d != null && o.mk.d > 0.02;
+    return `<article class="card ${o.gar ? "top" : ""}" style="animation-delay:${Math.min(i % 24, 12) * 25}ms">
+      <button class="thumb" data-open="${o.id}" aria-label="Ver análise">${img(o)}
+        <span class="badges">${o.gar ? '<span class="badge gar">Garimpo</span>' : ""}${o.fs ? '<span class="badge">Frete grátis</span>' : ""}${o.pc && o.pc.kit ? '<span class="badge kit">Kit c/ monitor</span>' : ""}${o.fake ? '<span class="badge bad">Desconto suspeito</span>' : ""}</span>
+      </button>
+      <div class="cbody">
+        <div class="chead"><div class="score">${ring(o.s)}<span class="verdict" style="color:${color(o.s)}">${VERDICT[o.v]}</span></div>
+          <button class="fav" data-fav="${o.id}" aria-pressed="${favs.has(o.id)}" aria-label="Salvar nos favoritos"><svg width="16" height="16" viewBox="0 0 24 24" fill="${favs.has(o.id) ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2"><path d="M12 21l-1.4-1.3C5.4 15 2 12 2 8.4 2 5.4 4.4 3 7.4 3c1.7 0 3.4.8 4.6 2.1C13.2 3.8 14.9 3 16.6 3 19.6 3 22 5.4 22 8.4c0 3.6-3.4 6.6-8.6 11.3L12 21z"/></svg></button></div>
+        <div class="minis">${mini("Custo-benefício", o.sc.custoBeneficio)}${mini("Desconto real", o.sc.desconto)}${mini("Confiabilidade", o.sc.confiabilidade)}</div>
+        <div class="chips"><span class="chip ${o.cond === "novo" ? "" : "cond"}">${COND[o.cond]}</span><span class="chip risk" style="color:${RISK[o.risk][1]}" title="${esc(o.rr.join(" "))}">${RISK[o.risk][0]}</span></div>
+        <button class="ctitle" data-open="${o.id}" title="${esc(o.t)}">${esc(o.t)}</button>
+        <div class="chips">${specChips(o).slice(0, 6).map((c) => `<span class="chip">${esc(c)}</span>`).join("")}</div>
+        ${o.perf && o.perf.tier ? `<p class="tier">${esc(o.perf.tier)}</p>` : ""}
+        <div class="price"><div>${o.lp && o.lp > o.pr ? `<div class="old num">${brl(o.lp)}</div>` : ""}<div class="now num">${brl(o.pr)}</div><div class="sub">à vista${o.ip ? " · " + brl(o.ip) + " parcelado" : ""}</div></div>
+          ${save ? `<span class="save">−${pct(o.mk.d)}% do mercado</span>` : ""}</div>
+        <dl class="kv">
+          <dt>Média de mercado</dt><dd class="num">${o.mk.p != null ? brl(o.mk.p) + (o.mk.n ? "" : ' <span class="faint">(est.)</span>') : '<span class="faint">não calculável</span>'}</dd>
+          ${save ? `<dt>Economia estimada</dt><dd class="num good">${brl(o.mk.sv)}</dd>` : ""}
+          <dt>Frete</dt><dd>${o.fs ? "grátis" : '<span class="faint">calcular na loja</span>'}</dd>
+          <dt>Prazo</dt><dd><span class="faint">não informado pela fonte</span></dd>
+          <dt>Vendedor</dt><dd title="${esc(o.se || o.st)}">${esc(o.se || o.st)}${o.loc ? " · " + esc(o.loc) : ""}</dd>
+          <dt>Verificado</dt><dd class="num">${verified(o)}</dd>
+        </dl>
+        ${warns.map((f) => `<p class="warn ${f[0] === "danger" ? "danger" : ""}">⚠ ${esc(f[1])}</p>`).join("")}
+        <div class="actions"><a class="btn btn-primary" href="${esc(o.u)}" target="_blank" rel="noopener noreferrer nofollow">Ver anúncio</a><button class="btn btn-ghost" data-open="${o.id}">Análise</button></div>
+      </div></article>`;
+  }
+
+  function part(label, o) {
+    return `<div class="part"><button class="pimg" data-open="${o.id}" aria-label="Ver análise">${img(o)}</button>
+      <div class="pinfo"><span class="plabel">${label} · nota ${o.s} · ${COND[o.cond]}</span>
+      <button class="ctitle" data-open="${o.id}">${esc(o.t)}</button>
+      <span class="pmeta">${esc(specChips(o).slice(0, 4).join(" · "))}</span>
+      <span class="pmeta"><b class="num" style="color:var(--fg)">${brl(o.total)}</b> · ${esc(o.st)} · <a href="${esc(o.u)}" target="_blank" rel="noopener noreferrer nofollow" style="color:var(--accent)">ver anúncio</a></span></div></div>`;
+  }
+  function combo(c) {
+    const pc = byId.get(c.pc), mon = c.mon ? byId.get(c.mon) : null;
+    return `<article class="combo"><div class="top"><div class="score">${ring(c.s)}<span class="verdict" style="color:${color(c.s)}">${VERDICT[c.v]}</span><span class="kind ${c.kind === "kit" ? "kit" : ""}">${c.kind === "kit" ? "Kit (monitor incluso)" : "Anúncios separados"}</span></div>
+      <div style="text-align:right"><div style="font-size:11px;color:var(--muted)">Total do conjunto</div><div class="num" style="font:700 24px var(--display)">${brl(c.total)}</div>${c.complete ? "" : '<div style="font-size:11px;color:var(--faint)">+ frete a calcular</div>'}</div></div>
+      <div class="parts">${part(c.kind === "kit" ? "Kit PC + monitor" : "PC", pc)}${mon ? part("Monitor", mon) : ""}</div>
+      <p class="fine" style="color:var(--muted)">${c.notes.map(esc).join(" ")}</p></article>`;
+  }
+
+  // ---------- filtros ----------
+  const baseList = () => state.mode === "monitor" ? D.mons : state.mode === "garimpo" ? [...D.pcs, ...D.mons] : D.pcs;
+  function facet(list, key) {
+    const m = new Map(); for (const o of list) { const k = key(o); if (k) m.set(k, (m.get(k) || 0) + 1); }
+    return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40);
+  }
+  const seg = (id, label, opts, val, suffix = "") => `<div><span class="flabel">${label}</span><div class="seg">${opts.map(([v, l]) => `<button type="button" data-seg="${id}" data-v="${v}" aria-pressed="${String(val ?? "") === v}">${l}${v && suffix}</button>`).join("")}</div></div>`;
+  const sel = (id, label, opts, val) => `<div><label class="flabel" for="f-${id}">${label}</label><select class="input" id="f-${id}" data-sel="${id}"><option value="">Qualquer</option>${opts.map(([v, n]) => `<option value="${esc(v)}" ${val === v ? "selected" : ""}>${esc(v)} (${n})</option>`).join("")}</select></div>`;
+  function renderFilters() {
+    const f = state.f, el = $("#filters");
+    if (state.mode === "favoritos" || state.mode === "radar") { el.innerHTML = `<p class="fine">${state.mode === "favoritos" ? "Favoritos ficam salvos só neste navegador." : "O radar compara as coletas sucessivas da mesma fonte."}</p>`; return; }
+    const base = baseList();
+    const condCount = Object.fromEntries(facet(base, (o) => o.cond));
+    let h = `<div class="only-mobile" style="justify-content:space-between;align-items:center"><b>Filtros</b><button class="btn btn-ghost" type="button" id="closeFilters">Aplicar</button></div>
+      <div><span class="flabel">${state.mode === "pc-monitor" ? "Orçamento total (R$)" : "Preço (R$)"}</span><div class="row2"><input class="input num" id="f-min" inputmode="numeric" placeholder="sem mínimo" value="${f.min ?? ""}" aria-label="Preço mínimo"><input class="input num" id="f-max" inputmode="numeric" placeholder="máximo" value="${f.max ?? ""}" aria-label="Orçamento máximo"></div></div>`;
+    if (state.mode !== "pc-monitor") {
+      h += `<div><span class="flabel">Estado de conservação</span><div class="checks">${Object.keys(COND).map((c) => `<label class="check"><input type="checkbox" data-cond="${c}" ${(f.cond || []).includes(c) ? "checked" : ""}> ${COND[c]}<span class="n">${condCount[c] || 0}</span></label>`).join("")}</div><p class="fine" style="margin-top:4px">Nenhum marcado = todos.</p></div>`;
+      h += seg("risk", "Risco", [["", "Todos"], ["baixo", "Baixo"], ["semalto", "Sem alto risco"]], f.risk);
+      h += seg("sty", "Vendedor", [["", "Todos"], ["prof", "Profissional"], ["pessoa-fisica", "Pessoa física"]], f.sty);
+      h += sel("loc", "Localização do vendedor (UF)", facet(base, (o) => o.loc), f.loc);
+    }
+    h += seg("score", "Nota geral mínima", [["", "Todas"], ["60", "60+"], ["75", "75+"], ["90", "90+"]], f.score);
+    if (state.mode !== "monitor") {
+      h += sel("cpu", "Processador", facet(D.pcs, (o) => o.pc && o.pc.cpu && o.pc.cpu.replace(/\s*\(.*\)$/, "")), f.cpu);
+      h += sel("gpu", "Placa de vídeo", facet(D.pcs, (o) => o.pc && o.pc.gpu && o.pc.gpu.replace(/\s*\(.*\)$/, "")), f.gpu);
+      h += seg("ram", "Memória RAM mínima", [["", "—"], ["8", "8"], ["16", "16"], ["32", "32"], ["64", "64"]], f.ram, " GB");
+      h += seg("sto", "Armazenamento mínimo", [["", "—"], ["480", "480 GB"], ["1000", "1 TB"], ["2000", "2 TB"]], f.sto);
+      if (state.mode === "pc") h += seg("kit", "Kits com monitor", [["", "Todos"], ["no", "Só o PC"], ["yes", "Só kits"]], f.kit);
+    }
+    if (state.mode === "monitor" || state.mode === "garimpo") {
+      h += sel("res", "Resolução do monitor", facet(D.mons, (o) => o.mon && o.mon.res), f.res);
+      h += seg("hz", "Frequência mínima", [["", "—"], ["75", "75"], ["144", "144"], ["165", "165"], ["240", "240"]], f.hz, " Hz");
+    }
+    if (state.mode === "pc" || state.mode === "monitor") h += sel("brand", "Marca", facet(base, (o) => o.br), f.brand);
+    h += `<div><span class="flabel">Entrega</span><div class="checks"><label class="check"><input type="checkbox" id="f-fs" ${f.fs ? "checked" : ""}> Somente frete grátis</label><label class="check"><input type="checkbox" id="f-pick" ${f.pick ? "checked" : ""}> Aceita retirada presencial</label></div><p class="fine" style="margin-top:4px">A fonte ativa não informa retirada nem prazo; esses filtros passam a valer com fontes que informam.</p></div>`;
+    h += `<button class="link" type="button" id="clearF">Limpar filtros</button>`;
+    el.innerHTML = h;
+  }
+
+  function pass(o, ignorePrice) {
+    const f = state.f;
+    if (state.q) { const t = norm(o.t); if (!norm(state.q).split(/\s+/).filter((w) => w.length > 1).every((w) => t.includes(w))) return false; }
+    if (!ignorePrice && f.min && o.pr < +f.min) return false;
+    if (!ignorePrice && f.max && o.total > +f.max) return false;
+    if (f.score && o.s < +f.score) return false;
+    if (f.cond && f.cond.length && !f.cond.includes(o.cond)) return false;
+    if (f.risk === "baixo" && o.risk !== "baixo") return false;
+    if (f.risk === "semalto" && o.risk === "alto") return false;
+    if (f.sty === "prof" && !(o.sty === "loja" || o.sty === "profissional")) return false;
+    if (f.sty === "pessoa-fisica" && o.sty !== "pessoa-fisica") return false;
+    if (f.loc && o.loc !== f.loc) return false;
+    if (f.fs && !o.fs) return false;
+    if (f.pick && !o.pick) return false;
+    if (f.brand && o.br !== f.brand) return false;
+    if (o.pc) {
+      if (f.cpu && !(o.pc.cpu || "").startsWith(f.cpu)) return false;
+      if (f.gpu && !(o.pc.gpu || "").startsWith(f.gpu)) return false;
+      if (f.ram && !(o.pc.ram >= +f.ram)) return false;
+      if (f.sto && !((o.pc.sto || []).reduce((s, x) => s + x.gb, 0) >= +f.sto)) return false;
+      if (f.kit === "yes" && !o.pc.kit) return false;
+      if (f.kit === "no" && o.pc.kit) return false;
+    }
+    if (o.c === "monitor" && o.mon) {
+      if (f.res && o.mon.res !== f.res) return false;
+      if (f.hz && !(o.mon.hz >= +f.hz)) return false;
+    }
+    return true;
+  }
+  const perfOf = (o) => (o.perf && o.perf.gi) ?? o.mq ?? 0;
+  function sortList(l) {
+    const s = state.sort;
+    return l.sort((a, b) =>
+      s === "price" ? a.pr - b.pr :
+      s === "discount" ? (b.mk.d ?? -9) - (a.mk.d ?? -9) || b.s - a.s :
+      s === "value" ? b.sc.custoBeneficio - a.sc.custoBeneficio || a.total - b.total :
+      s === "perf" ? perfOf(b) - perfOf(a) || b.s - a.s :
+      b.s - a.s || a.total - b.total);
+  }
+
+  function garBox() {
+    const el = $("#garBox");
+    if (state.mode !== "pc" && state.mode !== "monitor") { el.innerHTML = ""; return; }
+    const n = (state.mode === "pc" ? D.pcs : D.mons).filter((o) => o.gar).length;
+    el.innerHTML = `<button type="button" class="garimpo" id="garToggle" aria-pressed="${state.gar}"><b>GARIMPO EXTREMO ${state.gar ? "· ATIVO" : ""}</b><span>${n} ${state.mode === "pc" ? "PCs" : "monitores"} pelo menos 20% abaixo da média de anúncios comparáveis no mesmo estado, sem alto risco. Toque para ${state.gar ? "ver todos" : "ver só esses"}.</span></button>`;
+  }
+
+  function render() {
+    const m = MODES[state.mode];
+    $("#h1").textContent = m.h; $("#sub").textContent = m.sub;
+    document.querySelectorAll("nav.tabs a").forEach((a) => a.setAttribute("aria-current", a.dataset.tab === state.mode ? "page" : "false"));
+    $("#sort").hidden = state.mode === "pc-monitor" || state.mode === "radar";
+    $("#bar").hidden = state.mode === "radar";
+    garBox();
+    const out = $("#results");
+    if (state.mode === "radar") return renderRadar(out);
+    if (state.mode === "pc-monitor") {
+      const f = state.f;
+      const list = D.combos.filter((c) => {
+        const pc = byId.get(c.pc), mon = c.mon ? byId.get(c.mon) : null;
+        if (!pc || !pass(pc, true)) return false;
+        if (f.min && c.total < +f.min) return false;
+        if (f.max && c.total > +f.max) return false;
+        if (f.score && c.s < +f.score) return false;
+        if (f.fs && !(pc.fs && (!mon || mon.fs))) return false;
+        return true;
+      });
+      $("#count").textContent = `${list.length} conjuntos`;
+      out.innerHTML = (D.kitInsight ? `<div class="insight"><b>Kit ou separado?</b> ${esc(D.kitInsight)}</div>` : "") +
+        (list.length ? `<div class="stack">${list.slice(0, state.shown).map(combo).join("")}</div>` : `<div class="empty">Nenhum conjunto para esses filtros.</div>`) +
+        (list.length > state.shown ? `<div class="more"><button class="btn btn-ghost" id="moreBtn">Mostrar mais</button></div>` : "");
+      return;
+    }
+    let list;
+    if (state.mode === "favoritos") list = [...favs].map((id) => byId.get(id)).filter(Boolean);
+    else list = baseList().filter((o) => (state.mode === "garimpo" || state.gar ? o.gar : true) && pass(o));
+    list = sortList(list.slice());
+    $("#count").textContent = `${list.length.toLocaleString("pt-BR")} ofertas`;
+    if (!list.length) {
+      out.innerHTML = `<div class="empty">${state.mode === "favoritos" ? "Nenhum favorito ainda. Toque no ♥ de uma oferta para salvá-la aqui." : "Nenhuma oferta para esses filtros. Tente ampliar o orçamento ou limpar os filtros."}</div>`;
+      return;
+    }
+    out.innerHTML = `<div class="grid">${list.slice(0, state.shown).map(card).join("")}</div>` + (list.length > state.shown ? `<div class="more"><button class="btn btn-ghost" id="moreBtn">Mostrar mais (${(list.length - state.shown).toLocaleString("pt-BR")} restantes)</button></div>` : "");
+  }
+
+  function renderRadar(out) {
+    $("#count").textContent = "";
+    const r = D.radar;
+    const drops = r.drops.map((d) => ({ d, o: byId.get(d.id) })).filter((x) => x.o);
+    const fresh = r.fresh.map((id) => byId.get(id)).filter(Boolean);
+    out.innerHTML = `<div class="radar">
+      <h2>Quedas de preço (${drops.length})</h2>
+      ${drops.length ? `<div class="grid">${drops.map(({ d, o }, i) => `<div><p class="drop">▼ ${brl(d.prev, 2)} → ${brl(d.cur, 2)} (−${Math.round((1 - d.cur / d.prev) * 100)}%)</p>${card(o, i)}</div>`).join("")}</div>` : `<div class="empty">Nenhuma queda de preço detectada entre as coletas.</div>`}
+      <h2>Anúncios novos (${fresh.length})</h2>
+      ${fresh.length ? `<div class="grid">${fresh.slice(0, 24).map(card).join("")}</div>` : `<div class="empty">Nenhum anúncio novo desde a primeira coleta deste retrato.</div>`}
+      <h2>Removidos ou esgotados</h2><p class="fine" style="font-size:13px">${r.removed} anúncio(s) saíram do ar ou esgotaram nas últimas coletas e não aparecem como disponíveis.</p></div>`;
+  }
+
+  // ---------- painel de análise ----------
+  const row = (k, v) => `<tr><td>${k}</td><td>${v == null || v === "" ? '<span class="unv">não informado</span>' : esc(v)}</td></tr>`;
+  function openPanel(id) {
+    const o = byId.get(id); if (!o) return;
+    const p = o.pc, m = o.mon;
+    let h = `<div class="scrim" data-close></div><aside class="panel" role="dialog" aria-modal="true" aria-label="Análise do anúncio">
+      <button class="btn btn-ghost close" data-close type="button">Fechar ✕</button>
+      <div class="pimgbig">${img(o)}</div>
+      <div class="chips"><span class="chip">${esc(o.st)}</span>${o.se ? `<span class="chip">vendido por ${esc(o.se)}</span>` : ""}<span class="chip ${o.cond === "novo" ? "" : "cond"}">${COND[o.cond]}</span><span class="chip risk" style="color:${RISK[o.risk][1]}">${RISK[o.risk][0]}</span></div>
+      <h2>${esc(o.t)}</h2>
+      <div class="box" style="grid-template-columns:auto 1fr;align-items:center">${ring(o.s, 76)}<div style="text-align:right">${o.lp && o.lp > o.pr ? `<div class="num" style="font-size:13px;color:var(--faint);text-decoration:line-through">${brl(o.lp, 2)}</div>` : ""}<div class="num" style="font:700 28px var(--display)">${brl(o.pr, 2)}</div><div style="font-size:12px;color:var(--muted)">${VERDICT[o.v]} · à vista${o.ip ? " · " + brl(o.ip, 2) + " parcelado" : ""}</div></div></div>
+      <a class="btn btn-primary" style="padding:12px" href="${esc(o.u)}" target="_blank" rel="noopener noreferrer nofollow">Abrir anúncio original</a>
+      <div class="box"><h3>Três notas independentes</h3><div class="three">
+        <div><small>Custo-benefício</small><b class="num" style="color:${color(o.sc.custoBeneficio)}">${o.sc.custoBeneficio}</b><p>${esc(o.sn.custoBeneficio)}</p></div>
+        <div><small>Desconto real</small><b class="num" style="color:${color(o.sc.desconto)}">${o.sc.desconto ?? "—"}</b><p>${esc(o.sn.desconto)}</p></div>
+        <div><small>Confiabilidade</small><b class="num" style="color:${color(o.sc.confiabilidade)}">${o.sc.confiabilidade}</b><p>${esc(o.sn.confiabilidade)}</p></div></div>
+        <p class="fine">Nota geral = 45% custo-benefício + 25% desconto real + 30% confiabilidade; no máximo 35 em alto risco e 55 com informações insuficientes.</p></div>
+      <div class="box"><h3>Preço de mercado</h3><table class="spec"><tbody>
+        ${row("Estado de conservação", COND[o.cond])}${row("Preço médio estimado neste estado", o.mk.p != null ? brl(o.mk.p) : null)}${row("Equivalente novo", o.mk.np != null ? brl(o.mk.np) : null)}
+        ${row("Economia estimada", o.mk.sv != null ? `${brl(o.mk.sv)} (${o.mk.d >= 0 ? pct(o.mk.d) + "% abaixo" : pct(-o.mk.d) + "% acima"} da média)` : null)}</tbody></table>
+        <p class="fine">Base: ${esc(o.mk.b)}.</p></div>
+      <div class="box"><h3>Análise de risco: <span style="color:${RISK[o.risk][1]}">${RISK[o.risk][0]}</span></h3><ul class="flags">${o.rr.map((r) => `<li class="lvl-info">• ${esc(r)}</li>`).join("")}</ul><p class="fine">A análise usa apenas os dados que a fonte publica. Nenhum anúncio é garantido como seguro: confira o vendedor e pague sempre pela plataforma.</p></div>`;
+    if (o.flags.length) h += `<div class="box"><h3>Alertas do anúncio</h3><ul class="flags">${o.flags.map((f) => `<li class="lvl-${f[0]}">${f[0] === "info" ? "ℹ" : "⚠"} ${esc(f[1])}</li>`).join("")}</ul></div>`;
+    h += `<div class="box"><h3>Detalhe do custo-benefício</h3>${o.comp.filter((c) => c[0] !== "Confiabilidade da loja").map(([l, w, v, d]) => `<div class="meter"><div class="mh"><span>${esc(l)} <small>peso ${w}</small></span><b class="num" style="color:${color(v)}">${v}</b></div><div class="track"><div class="fill" style="width:${v}%;background:${color(v)}"></div></div><p>${esc(d)}</p></div>`).join("")}</div>`;
+    h += `<div class="box"><h3>Custo, entrega e vendedor</h3><table class="spec"><tbody>${row("Preço anunciado (à vista)", brl(o.pr, 2))}${row("Frete", o.fs ? "grátis" : null)}<tr><td>Total</td><td><b class="num">${brl(o.total, 2)}</b>${o.complete ? "" : ' <span class="unv">+ frete a calcular no anúncio</span>'}</td></tr>${row("Prazo de entrega", null)}${row("Retirada presencial", o.pick == null ? null : o.pick ? "sim" : "não")}${row("Vendedor", o.se || o.st)}${row("Tipo de vendedor", STY[o.sty])}${row("Localização do vendedor", o.loc)}${row("Origem", o.org === "BR" ? "Brasil" : o.org)}${row("Última verificação", verified(o))}</tbody></table></div>`;
+    if (o.perf) h += `<div class="box"><h3>Desempenho estimado em jogos</h3><p style="margin:0">${esc(o.perf.tier || "Não verificável com os dados do anúncio.")}</p>${o.perf.res.length ? `<div class="resgrid">${o.perf.res.map((r) => `<div><small>${r.res}</small>${esc(r.label)}</div>`).join("")}</div>` : ""}${o.perf.bn ? `<p class="warn">${esc(o.perf.bn)}</p>` : ""}<p class="fine">Índice relativo (RTX 4060 + Ryzen 5 5600 ≈ 100) baseado em benchmarks públicos agregados. Não é FPS medido.</p></div>`;
+    h += `<div class="box"><h3>Configuração identificada</h3><table class="spec"><tbody>`;
+    if (p) h += row("Processador", p.cpu ? p.cpu + (p.sock ? " · " + p.sock : "") : null) + row("Placa de vídeo", p.gpu ? p.gpu + (p.vram ? ` · ${p.vram} GB` : "") : null) + row("Memória RAM", p.ram ? `${p.ram} GB${p.rt ? " " + p.rt : ""}` : null) + row("SSD / HD", stoText(p.sto) || null) + row("Placa-mãe", p.mb ? [p.mb.chipset, p.mb.socket].filter(Boolean).join(" · ") : null) + row("Fonte", p.psu ? [p.psu.watts && p.psu.watts + " W", p.psu.rating].filter(Boolean).join(" · ") : null) + row("Sistema", p.os);
+    if (m) h += (p ? `<tr><td colspan="2"><span class="flabel" style="margin:8px 0 0">Monitor incluso</span></td></tr>` : "") + row("Tamanho", m.size ? m.size + '"' : null) + row("Resolução", m.w ? `${m.w}×${m.h} (${m.res})` : m.res) + row("Frequência", m.hz ? m.hz + " Hz" : null) + row("Painel", m.panel) + row("Tempo de resposta", m.ms != null ? m.ms + " ms" : null) + row("Sincronização", m.sync) + row("HDR", m.hdr) + row("Conexões", m.ports && m.ports.length ? m.ports.join(", ") : null) + row("Estado da tela / pixels mortos", o.cond === "novo" ? "produto novo" : null);
+    h += row("Garantia", o.w) + row("Estoque", o.stock != null ? `${o.stock} unidade(s) na verificação` : "disponível na verificação") + `</tbody></table></div>`;
+    if (o.hist) h += `<div class="box"><h3>Histórico de preço</h3><p style="margin:0;color:${o.fake ? "var(--bad)" : "var(--muted)"}">${esc(o.hist)}</p></div>`;
+    h += `</aside>`;
+    $("#panelRoot").innerHTML = h;
+    $(".panel .close").focus();
+  }
+  const closePanel = () => { $("#panelRoot").innerHTML = ""; };
+
+  document.addEventListener("click", (e) => {
+    const t = e.target.closest("[data-open],[data-fav],[data-close],[data-seg],#moreBtn,#clearF,#openFilters,#closeFilters,#garToggle");
+    if (!t) return;
+    if (t.dataset.open) { openPanel(+t.dataset.open); return; }
+    if (t.dataset.fav) {
+      const id = +t.dataset.fav; favs.has(id) ? favs.delete(id) : favs.add(id); saveFavs();
+      t.setAttribute("aria-pressed", favs.has(id)); t.querySelector("svg").setAttribute("fill", favs.has(id) ? "currentColor" : "none");
+      if (state.mode === "favoritos") render(); return;
+    }
+    if (t.hasAttribute("data-close")) { closePanel(); return; }
+    if (t.dataset.seg) { state.f[t.dataset.seg] = t.dataset.v || undefined; state.shown = 24; renderFilters(); render(); return; }
+    if (t.id === "garToggle") { state.gar = !state.gar; if (state.gar) { state.sort = "discount"; $("#sort").value = "discount"; } state.shown = 24; render(); return; }
+    if (t.id === "moreBtn") { state.shown += 24; render(); return; }
+    if (t.id === "clearF") { state.f = {}; state.q = ""; $("#q").value = ""; state.shown = 24; renderFilters(); render(); return; }
+    if (t.id === "openFilters") { $("#filters").classList.add("open"); return; }
+    if (t.id === "closeFilters") { $("#filters").classList.remove("open"); return; }
+  });
+  document.addEventListener("change", (e) => {
+    const t = e.target;
+    if (t.dataset && t.dataset.sel) state.f[t.dataset.sel] = t.value || undefined;
+    else if (t.dataset && t.dataset.cond) { const s = new Set(state.f.cond || []); t.checked ? s.add(t.dataset.cond) : s.delete(t.dataset.cond); state.f.cond = [...s]; }
+    else if (t.id === "f-min" || t.id === "f-max") state.f[t.id.slice(2)] = t.value.replace(/\D/g, "") || undefined;
+    else if (t.id === "f-fs") state.f.fs = t.checked || undefined;
+    else if (t.id === "f-pick") state.f.pick = t.checked || undefined;
+    else if (t.id === "sort") state.sort = t.value;
+    else return;
+    state.shown = 24; render();
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePanel(); });
+  $("#searchForm").addEventListener("submit", (e) => { e.preventDefault(); state.q = $("#q").value.trim(); state.shown = 24; render(); });
+
+  function route() {
+    const h = location.hash.slice(1);
+    state.mode = MODES[h] ? h : "pc"; state.shown = 24; state.f = {}; state.gar = false;
+    state.sort = state.mode === "garimpo" ? "discount" : "score"; $("#sort").value = state.sort;
+    closePanel(); renderFilters(); render();
+  }
+  window.addEventListener("hashchange", route);
+
+  Promise.all([fetch("data.json").then((r) => r.json()), fetch("img.json").then((r) => r.json()).catch(() => ({}))]).then(([d, im]) => {
+    D = d; IMG = im;
+    for (const o of [...d.pcs, ...d.mons]) byId.set(o.id, o);
+    const at = new Date(d.at);
+    const used = [...d.pcs, ...d.mons].filter((o) => o.cond !== "novo").length;
+    const gar = [...d.pcs, ...d.mons].filter((o) => o.gar).length;
+    $("#stamp").textContent = `verificado em ${at.toLocaleDateString("pt-BR")} ${at.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+    $("#notice").innerHTML = `<span class="dot" aria-hidden="true"></span><span><strong>${d.pcs.length.toLocaleString("pt-BR")} PCs e ${d.mons.length.toLocaleString("pt-BR")} monitores reais</strong> (${used} não novos: usados, seminovos, recondicionados) lidos da KaBuM! e do marketplace dela em ${at.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}. <strong>${gar} oportunidades de garimpo</strong> encontradas.
+      <details><summary>Quais fontes estão ativas?</summary>Ativa: KaBuM! (catálogo e marketplace, incluindo vendedores de usados e recondicionados). Prontas, aguardando credenciais: Mercado Livre (novos e usados), Amazon, AliExpress, Shopee e feeds de lojas. Sem integração autorizada disponível: OLX, Facebook Marketplace e Enjoei não oferecem API de busca para terceiros; Pichau, Terabyte, Magalu e GK bloqueiam coleta automatizada. Prazo de entrega e frete por CEP não são informados pela fonte ativa e aparecem como "não informado". Esta página é um retrato da coleta; a versão com servidor atualiza sozinha.</details></span>`;
+    route();
+  }).catch(() => { $("#results").innerHTML = `<div class="empty">Não foi possível carregar as ofertas. Recarregue a página.</div>`; });
+})();
+</script>
