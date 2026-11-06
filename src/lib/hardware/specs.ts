@@ -23,7 +23,7 @@ export function stripHtml(html: string): string {
 const MONITOR_WORDS = /\bmonitor\b/i;
 const PC_WORDS = /\b(pc|computador|desktop|cpu gamer|workstation|mini ?pc)\b/i;
 
-const ACCESSORY = /^(suporte|filtro|cabo|bra[cç]o|gabinete|fonte|placa[\s-]m[aã]e|placa de v[ií]deo|mem[oó]ria|ssd|hd\b|teclado|mouse|headset|cooler|water|kit (upgrade|placa)|pel[ií]cula|capa|adaptador|webcam|controle|cadeira|mesa|estabilizador|nobreak|processador|limpa|hub|dock|switch|roteador|caixa de som)/i;
+const ACCESSORY = /^(suporte|filtro|cabo|bra[cç]o|gabinete|fonte|placa[\s-]m[aã]e|placa de v[ií]deo|mem[oó]ria|ssd|hd\b|teclado|mouse|headset|cooler|water|pel[ií]cula|capa|adaptador|webcam|controle|cadeira|mesa|estabilizador|nobreak|processador|limpa|hub|dock|switch|roteador|caixa de som)/i;
 
 /** Acessórios e peças avulsas que aparecem em buscas por "pc gamer"/"monitor". */
 export function isAccessory(title: string): boolean {
@@ -36,8 +36,16 @@ export function isAccessory(title: string): boolean {
 export function detectCategory(title: string, hint: Category | null): Category {
   if (hint) return hint;
   const t = title.toLowerCase();
+  if (isHardwareKit(t)) return "kit";
   if (MONITOR_WORDS.test(t) && !PC_WORDS.test(t.split("monitor")[0])) return "monitor";
   return "pc";
+}
+
+/** Kit de hardware: processador + placa-mãe (± memória/cooler), sem ser um PC completo. */
+export function isHardwareKit(title: string): boolean {
+  const t = title.toLowerCase();
+  if (/\b(pc|computador|desktop)\b/.test(t)) return false;
+  return /^kit\b/.test(t) && /(upgrade|processador|\bi[3579]\b|ryzen|xeon|placa[\s-]*m[aã]e|\b[abhxz]\d{2,3}m?\b)/.test(t) && !/(fan|cooler processador|plug|speaker|parafus|pasta)/.test(t.slice(0, 30));
 }
 
 // ---------- Monitor ----------
@@ -133,12 +141,17 @@ function parseRam(t: string): { gb: number | null; type: PcSpecs["ramType"] } {
     /(\d{1,3})\s*gb(?!\s*(?:ssd|hd|hdd|nvme|m\.2|de\s*armazenamento|gddr|vram|de\s*v[ií]deo))/g,
   ];
   // GBs que pertencem à placa de vídeo ("RTX 4060 8GB") não contam como RAM
-  const cleaned = t.replace(/\b(rtx|gtx|gt|rx|arc|vga|geforce|v[ií]deo)[^,|\n]{0,25}?\d{1,2}\s*gb/g, " ");
+  const cleaned = t.replace(/\b(rtx|gtx|gt|rx|arc|vga|geforce|v[ií]deo)[^,|\n]{0,25}?\d{1,2}\s*gb(?!\s*(ssd|hd\b|hdd|nvme|ram|ddr|de ram|mem))/g, " ");
   for (const re of patterns) {
     for (const m of cleaned.matchAll(re)) {
       const gb = Number(m[1]);
       if (allowed.includes(gb)) return { gb, type };
     }
+  }
+  // "8gb SSD 240": GB pequeno logo antes de "ssd" é memória (SSD nunca tem menos de 60 GB)
+  {
+    const m = cleaned.match(/\b(4|8|12|16|32)\s*gb\s*(?=ssd|hd\b|nvme)/);
+    if (m) return { gb: Number(m[1]), type };
   }
   return { gb: null, type };
 }
@@ -156,6 +169,10 @@ function parseStorage(t: string): StorageInfo[] {
   for (const m of t.matchAll(/(ssd(?:\s*m\.2)?(?:\s*nvme)?|nvme|m\.2|hdd|\bhd)\s*(?:de\s*)?(\d{1,4}(?:\.\d)?)\s*(tb|gb)\b/g)) add(Number(m[2]), m[3], m[1]);
   // "480GB SSD", "1TB Nvme"
   for (const m of t.matchAll(/(\d{1,4}(?:\.\d)?)\s*(tb|gb)\s*(?:de\s*)?(ssd|nvme|m\.2|hdd|hd)\b/g)) add(Number(m[1]), m[2], m[3]);
+  // "SSD 240" sem unidade (comum em classificados): só tamanhos típicos de SSD/HD
+  if (!out.length) {
+    for (const m of t.matchAll(/(ssd|nvme|hdd|\bhd)\s*(?:de\s*)?(120|128|240|256|480|500|512|960|1000|2000)\b(?!\s*(gb|tb|mb|w|hz))/g)) add(Number(m[2]), "gb", m[1]);
+  }
   return out;
 }
 
@@ -174,7 +191,7 @@ function parsePsu(t: string): PsuInfo | null {
 }
 
 function parseMotherboard(t: string): PcSpecs["motherboard"] {
-  const chip = t.match(/\b([abhxbqz]\d{3}[a-z]?)\b(?=[^\n]{0,30})/g);
+  const chip = t.match(/\b([abhxbqz]\d{2,3}[a-z]?)\b/g);
   const known = chip?.map((c) => c.toUpperCase()).find((c) => /^(A320|A520|A620|B350|B450|B550|B650E?|B840|B850|X370|X470|X570|X670E?|X870E?|H81|H110|H310|H410|H510|H610|B360|B365|B460|B560|B660|B760|Z390|Z490|Z590|Z690|Z790|Z890|B860|H810|X79|X99|H61|B75|H55|B85|H97|Z97)$/.test(c)) ?? null;
   const socketM = t.match(/\b(am4|am5|lga\s*-?\s*(1700|1851|1200|1151|1150|1155|2011(?:-3)?))\b/);
   const socket = socketM ? socketM[1].toUpperCase().replace(/\s|-(?!3)/g, "") : null;
@@ -257,6 +274,22 @@ export function parseSpecs(title: string, extraText: string | null, hint: Catego
   }
   const pc = parsePc(title, extraText);
   const missing: string[] = [];
+  if (category === "kit") {
+    const t = title.toLowerCase();
+    const noBoard = /\b(s\/|sem)\s*placa/.test(t);
+    const noRam = /\b(s\/|sem)\s*(mem[oó]ria|ram)/.test(t);
+    if (noBoard) pc.motherboard = null;
+    if (noRam) pc.ramGb = null;
+    // kit não tem GPU dedicada nem fonte (alguns trazem SSD)
+    pc.psu = null;
+    pc.includesMonitor = false;
+    pc.monitor = null;
+    if (!pc.cpu) missing.push("processador");
+    else if (pc.cpu.index == null) missing.push("modelo exato do processador");
+    if (!pc.motherboard) missing.push(noBoard ? "placa-mãe (não inclusa)" : "placa-mãe");
+    if (!pc.ramGb) missing.push(noRam ? "memória (não inclusa)" : "memória RAM");
+    return { category, pc, monitor: null, missing };
+  }
   if (!pc.cpu) missing.push("processador");
   else if (pc.cpu.index == null) missing.push("modelo exato do processador");
   if (!pc.gpu) missing.push("placa de vídeo");
@@ -279,6 +312,7 @@ export function canonicalKey(category: Category, specs: ParsedSpecs, title: stri
     return `mon:${(brand ?? "?").toLowerCase()}:${m.sizeIn}:${m.resolutionLabel}:${m.refreshHz}:${m.panel}`;
   }
   const p = specs.pc;
+  if (category === "kit") return `kit:${p?.cpu?.model ?? "?"}:${p?.motherboard?.chipset ?? "?"}:${p?.ramGb ?? "?"}`.toLowerCase();
   const sto = p?.storage.map((s) => `${s.type}${s.gb}`).join("+") ?? "";
   return `pc:${p?.cpu?.model ?? "?"}:${p?.gpu?.model ?? "?"}:${p?.ramGb ?? "?"}:${sto}:${p?.includesMonitor ? "mon" : ""}`.toLowerCase();
 }

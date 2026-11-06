@@ -4,7 +4,7 @@ import { collect, enrichOffer, offersNeedingDetails, type SourceRun } from "./co
 import { deactivateStale } from "./repository";
 
 /** Buscas amplas usadas na atualização periódica (mineração contínua). */
-export const CRON_QUERIES: { category: "pc" | "monitor"; query: string }[] = [
+export const CRON_QUERIES: { category: "pc" | "monitor" | "kit"; query: string }[] = [
   { category: "pc", query: "" },
   { category: "pc", query: "rtx" },
   { category: "pc", query: "radeon rx" },
@@ -20,6 +20,10 @@ export const CRON_QUERIES: { category: "pc" | "monitor"; query: string }[] = [
   { category: "monitor", query: "monitor recondicionado" },
   { category: "monitor", query: "monitor seminovo" },
   { category: "monitor", query: "monitor usado" },
+  // kits de hardware (processador + placa-mãe ± memória)
+  { category: "kit", query: "" },
+  { category: "kit", query: "ryzen" },
+  { category: "kit", query: "intel" },
 ];
 
 export interface RefreshReport {

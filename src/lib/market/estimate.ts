@@ -15,19 +15,23 @@ export interface SamplePoint {
   cond: Condition;
   kit?: boolean;
   cpu?: number | null;
+  /** composição do kit de hardware: "placa|ram|ssd" */
+  comp?: string;
   res?: string | null;
   hz?: number | null;
   panel?: string | null;
 }
 
+/** Mediana após descartar os 25% mais caros (anúncios fora do preço praticado inflariam o "desconto"). */
 function median(v: number[]): number {
-  const s = [...v].sort((a, b) => a - b);
+  const all = [...v].sort((a, b) => a - b);
+  const s = all.slice(0, Math.max(1, Math.ceil(all.length * 0.75)));
   const m = Math.floor(s.length / 2);
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
 export function estimateMarket(args: {
-  id: number; category: "pc" | "monitor"; x: number | null; kit: boolean; cpu?: number | null; res?: string | null; hz?: number | null; panel?: string | null;
+  id: number; category: "pc" | "monitor" | "kit"; x: number | null; kit: boolean; comp?: string; cpu?: number | null; res?: string | null; hz?: number | null; panel?: string | null;
   cond: Condition; total: number; sample: SamplePoint[]; curve: MarketCurve; kitExtra: number;
 }): MarketEstimate {
   const { id, x, cond, total, sample } = args;
@@ -35,7 +39,13 @@ export function estimateMarket(args: {
   const pool = sample.filter((p) => p.id !== id && p.cond === "novo");
   let comps: SamplePoint[] = [];
   let basis = "";
-  if (args.category === "pc") {
+  if (args.category === "kit") {
+    // kit: processador de classe equivalente e mesma composição (com/sem memória)
+    for (const tol of [0.15, 0.3]) {
+      comps = pool.filter((p) => p.comp === args.comp && Math.abs(p.x - x) / x <= tol);
+      if (comps.length >= 5) { basis = `${comps.length} kits novos com processador equivalente (±${tol * 100}%) e mesma composição`; break; }
+    }
+  } else if (args.category === "pc") {
     for (const tol of [0.12, 0.25]) {
       // mesmo desempenho em jogos E processador de classe parecida (evita comparar um Pentium antigo com um i7 de escritório)
       const cpu = args.cpu;
@@ -50,9 +60,12 @@ export function estimateMarket(args: {
       if (comps.length >= 5) basis = `mediana de ${comps.length} monitores novos de qualidade equivalente`;
     }
   }
-  const enough = args.category === "pc" ? comps.length >= 5 : comps.length >= 4;
+  const enough = args.category === "monitor" ? comps.length >= 4 : comps.length >= 5;
   let newPrice: number;
-  if (enough) newPrice = median(comps.map((c) => c.price));
+  if (enough) {
+    newPrice = median(comps.map((c) => c.price));
+    basis = `mediana (sem os 25% mais caros) de ${basis.replace(/^mediana de /, "")}`;
+  }
   else {
     newPrice = expectedPrice(args.curve, x) + args.kitExtra;
     basis = `curva de preço do mercado (${args.curve.source === "dados-coletados" ? `${args.curve.n} ofertas` : "referência"}) — poucos anúncios idênticos para comparar`;

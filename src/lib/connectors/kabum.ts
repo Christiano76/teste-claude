@@ -22,7 +22,7 @@ interface KabumOfferBlock {
   name: string;
 }
 
-interface KabumAttrs {
+export interface KabumAttrs {
   title: string;
   menu: string;
   price: number;
@@ -46,7 +46,7 @@ interface KabumAttrs {
   description?: string;
 }
 
-interface KabumItem {
+export interface KabumItem {
   id: number;
   attributes: KabumAttrs;
 }
@@ -55,11 +55,12 @@ function categoryOf(menu: string): Category | null {
   const m = menu.toLowerCase();
   if (m.includes("/monitores")) return "monitor";
   if (m.includes("notebook") || m.includes("tablet")) return null;
+  if (m.includes("kit hardware") || m.includes("kit upgrade")) return "kit";
   if (m.startsWith("computadores/pc") || m.includes("/pc gamer") || m.includes("computadores/computadores") || m.includes("desktop") || m.includes("workstation")) return "pc";
   return null;
 }
 
-function mapItem(it: KabumItem, wanted: Category): RawOffer | null {
+export function mapKabumItem(it: KabumItem, wanted: Category): RawOffer | null {
   const a = it.attributes;
   const cat = categoryOf(a.menu ?? "");
   if (cat !== wanted) return null;
@@ -92,6 +93,12 @@ function mapItem(it: KabumItem, wanted: Category): RawOffer | null {
     freeShipping: a.has_free_shipping,
     origin: "BR",
     taxesIncluded: true,
+    // Loja online: o envio para todo o Brasil é feito pela própria KaBuM! (inclusive itens de parceiros)
+    shipAvailable: true,
+    shipScope: "nacional",
+    shipProgram: a.has_free_shipping ? "Envio KaBuM! (frete grátis)" : "Envio KaBuM!",
+    protection: "Compra pela loja: direito de arrependimento de 7 dias (CDC) e atendimento KaBuM!",
+    pickup: null,
     condition: classifyCondition(a.title, null, null, { openbox: a.is_openbox, storeSellsNewByDefault: true }),
     sellerType: !a.is_marketplace ? "loja" : a.marketplace?.seller_sale_pj === false ? "pessoa-fisica" : "profissional",
     brand: a.manufacturer?.name && a.manufacturer.name !== "-" ? a.manufacturer.name : null,
@@ -116,10 +123,10 @@ export const kabum: Connector = {
     };
   },
   async search(p: SearchParams): Promise<SearchPage> {
-    const q = defaultQuery(p.category, p.query);
+    const q = p.category === "kit" ? (p.query.trim() ? `kit upgrade ${p.query}` : "kit upgrade") : defaultQuery(p.category, p.query);
     const url = `${BASE}/products?query=${encodeURIComponent(q)}&page_size=${p.pageSize}&page_number=${p.page}&sort=most_searched`;
     const d = await fetchJson<{ data: KabumItem[]; meta: { total_pages_count: number; total_items_count: number } }>(url, { minIntervalMs: 1200 });
-    const offers = d.data.map((it) => mapItem(it, p.category)).filter((x): x is RawOffer => !!x);
+    const offers = d.data.map((it) => mapKabumItem(it, p.category)).filter((x): x is RawOffer => !!x);
     return { offers, hasMore: p.page < (d.meta?.total_pages_count ?? 0), totalAvailable: d.meta?.total_items_count };
   },
   async details(externalId: string) {

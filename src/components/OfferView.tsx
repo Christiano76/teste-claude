@@ -113,6 +113,9 @@ export function OfferView() {
               {a.cost.icms != null && <Row k="ICMS (est.)" v={brl(a.cost.icms, 2)} />}
               <Row k="Total" v={<b className="num">{brl(a.cost.total, 2)}{!a.cost.totalIsComplete && <span className="text-faint font-normal"> + itens não verificados</span>}</b>} />
               <Row k="Entrega" v={deliveryText(o)} />
+              <Row k="Modalidade de envio" v={a.delivery.label} />
+              <Row k="Programa de envio" v={a.delivery.program} />
+              <Row k="Proteção ao comprador" v={a.delivery.protection} />
               <Row k="Local do vendedor" v={o.sellerLocation} />
               <Row k="Retirada presencial" v={o.pickup == null ? null : o.pickup ? "sim" : "não"} />
               <Row k="Tipo de vendedor" v={o.sellerType === "pessoa-fisica" ? "Pessoa física" : o.sellerType === "profissional" ? "Profissional (CNPJ)" : o.sellerType === "loja" ? "A própria loja" : null} />

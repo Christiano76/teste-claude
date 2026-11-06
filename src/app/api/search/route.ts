@@ -4,7 +4,9 @@ import { search } from "@/lib/search/service";
 
 const num = z.coerce.number().finite().nonnegative().optional();
 const schema = z.object({
-  mode: z.enum(["pc", "pc-monitor", "monitor"]),
+  mode: z.enum(["pc", "pc-monitor", "monitor", "kit", "garimpo-entrega"]),
+  entrega: z.enum(["entrega", "ambos", "retirada"]).optional(),
+  tier: z.enum(["pc-500", "pc-700", "pc-1000", "monitor-200", "kit-barato"]).optional(),
   q: z.string().max(120).optional(),
   cep: z.string().regex(/^\d{5}-?\d{3}$/).optional(),
   minPrice: num,
@@ -62,6 +64,8 @@ export async function GET(req: Request) {
       includeUnconfirmed: !!p.unconfirmed,
       sort: p.sort,
       garimpo: !!p.garimpo,
+      deliveryMode: p.entrega,
+      tier: p.tier,
       conditions: p.cond?.split(",").filter(Boolean),
       ufs: p.uf?.split(",").filter(Boolean),
       sellerTypes: p.seller?.split(",").filter(Boolean),

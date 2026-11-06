@@ -30,7 +30,7 @@ async function getToken(): Promise<string | null> {
   return token.value;
 }
 
-interface MlItem {
+export interface MlItem {
   id: string;
   title: string;
   price: number;
@@ -39,7 +39,7 @@ interface MlItem {
   thumbnail: string;
   available_quantity?: number;
   condition: string;
-  shipping?: { free_shipping?: boolean; logistic_type?: string };
+  shipping?: { free_shipping?: boolean; logistic_type?: string; mode?: string; local_pick_up?: boolean; store_pick_up?: boolean };
   seller?: { id: number; nickname?: string; seller_reputation?: { level_id?: string; power_seller_status?: string | null; transactions?: { ratings?: { positive: number }; total?: number } } };
   attributes?: { id: string; value_name: string | null }[];
   address?: { state_name?: string };
@@ -52,7 +52,7 @@ function attr(it: MlItem, id: string): string | null {
   return it.attributes?.find((a) => a.id === id)?.value_name ?? null;
 }
 
-function mapItem(it: MlItem, cat: "pc" | "monitor"): RawOffer {
+export function mapMlItem(it: MlItem, cat: "pc" | "monitor" | "kit"): RawOffer {
   const rep = it.seller?.seller_reputation;
   const positive = rep?.transactions?.ratings?.positive;
   const intl = it.international_delivery_mode && it.international_delivery_mode !== "none" || it.tags?.includes("cbt_item");
@@ -67,6 +67,12 @@ function mapItem(it: MlItem, cat: "pc" | "monitor"): RawOffer {
     sellerRating: positive != null ? Math.round(positive * 5 * 100) / 100 : null,
     sellerRatingCount: rep?.transactions?.total ?? null,
     freeShipping: it.shipping?.free_shipping ?? null,
+    // Mercado Envios (me1/me2) = envio pela plataforma; "not_specified" = combinar com o vendedor (não confirmado)
+    shipAvailable: it.shipping?.mode && ["me1", "me2", "custom"].includes(it.shipping.mode) ? true : null,
+    shipScope: intl ? "internacional" : it.shipping?.mode && it.shipping.mode !== "not_specified" ? "nacional" : null,
+    shipProgram: it.shipping?.logistic_type === "fulfillment" ? "Mercado Envios Full" : it.shipping?.mode === "me2" ? "Mercado Envios" : it.shipping?.mode === "custom" ? "Envio próprio do vendedor" : null,
+    pickup: it.shipping?.local_pick_up ?? it.shipping?.store_pick_up ?? null,
+    protection: "Compra Garantida do Mercado Livre (pagando pela plataforma)",
     origin: intl ? "INTL" : "BR",
     taxesIncluded: intl ? null : true,
     condition: classifyCondition(it.title, null, it.condition),
@@ -102,9 +108,11 @@ export const mercadolivre: Connector = {
     const q = defaultQuery(p.category, p.query);
     const limit = Math.min(50, p.pageSize);
     const offset = (p.page - 1) * limit;
-    const url = `${API}/sites/MLB/search?q=${encodeURIComponent(q)}&limit=${limit}&offset=${offset}`;
+    // condition=used|new pode ser passado na query ("pc gamer usado" → filtro de usados)
+    const cond = /\busad[oa]|seminov/i.test(q) ? "&condition=used" : "";
+    const url = `${API}/sites/MLB/search?q=${encodeURIComponent(q.replace(/\b(usad[oa]s?|seminov[oa]s?)\b/gi, "").trim() || q)}&limit=${limit}&offset=${offset}${cond}`;
     const d = await fetchJson<{ results: MlItem[]; paging: { total: number } }>(url, { headers: { Authorization: `Bearer ${t}` } });
-    return { offers: d.results.map((r) => mapItem(r, p.category)), hasMore: offset + limit < Math.min(d.paging.total, 1000), totalAvailable: d.paging.total };
+    return { offers: d.results.map((r) => mapMlItem(r, p.category)), hasMore: offset + limit < Math.min(d.paging.total, 1000), totalAvailable: d.paging.total };
   },
   async shipping(externalId: string, cep: string): Promise<ShippingQuote | null> {
     const t = await getToken();

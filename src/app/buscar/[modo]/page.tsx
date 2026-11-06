@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import { SearchView } from "@/components/SearchView";
 
 export function generateStaticParams() {
-  return [{ modo: "pc" }, { modo: "pc-monitor" }, { modo: "monitor" }];
+  return [{ modo: "pc" }, { modo: "pc-monitor" }, { modo: "monitor" }, { modo: "kit" }, { modo: "garimpo-entrega" }];
 }
 
 export default function Page() {

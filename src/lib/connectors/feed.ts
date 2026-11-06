@@ -19,6 +19,8 @@ export interface FeedConfig {
   store: string;
   url: string;
   origin?: "BR" | "INTL";
+  /** "loja" (padrão, Google Merchant) ou "classificados" (anúncios de particulares/autorizados). */
+  kind?: "loja" | "classificados";
 }
 
 export function feedConfigs(): FeedConfig[] {
@@ -56,6 +58,18 @@ interface FeedRecord {
   id: string | null; title: string | null; link: string | null; price: string | null; sale_price: string | null;
   availability: string | null; image_link: string | null; brand: string | null; description: string | null;
   condition: string | null; shipping_price: string | null;
+  // campos opcionais de classificados
+  shipping_available?: string | null; shipping_scope?: string | null; shipping_program?: string | null; pickup?: string | null;
+  protection?: string | null; seller_type?: string | null; seller_name?: string | null; location?: string | null;
+}
+
+/** "sim"/"true"/"1" → true; "não"/"false"/"0" → false; vazio → null (não confirmado). */
+export function parseBool(v: string | null | undefined): boolean | null {
+  if (v == null || v.trim() === "") return null;
+  const t = v.trim().toLowerCase();
+  if (["1", "true", "sim", "yes", "s"].includes(t)) return true;
+  if (["0", "false", "nao", "não", "no", "n"].includes(t)) return false;
+  return null;
 }
 
 function toOffer(r: FeedRecord, f: FeedConfig): RawOffer | null {
@@ -71,13 +85,21 @@ function toOffer(r: FeedRecord, f: FeedConfig): RawOffer | null {
     available: av ? av === "in_stock" || av === "em_estoque" : null,
     brand: r.brand,
     specsText: r.description?.slice(0, 4000) ?? null,
-    condition: classifyCondition(r.title, r.description, r.condition, { storeSellsNewByDefault: true }),
-    sellerType: "loja",
+    condition: classifyCondition(r.title, r.description, r.condition, { storeSellsNewByDefault: f.kind !== "classificados" }),
+    sellerType: f.kind === "classificados" ? (r.seller_type === "pessoa-fisica" || r.seller_type === "profissional" ? r.seller_type : null) : "loja",
+    sellerName: r.seller_name ?? null,
+    sellerLocation: r.location ?? null,
+    pickup: parseBool(r.pickup),
+    // Envio só é considerado confirmado se o feed disser explicitamente (ou trouxer preço de frete)
+    shipAvailable: parseBool(r.shipping_available) ?? (r.shipping_price ? true : null),
+    shipScope: r.shipping_scope === "local" || r.shipping_scope === "nacional" || r.shipping_scope === "internacional" ? r.shipping_scope : null,
+    shipProgram: r.shipping_program ?? null,
+    protection: r.protection ?? null,
     shippingCost: parsePrice(r.shipping_price) ?? (r.shipping_price && /^0([.,]0+)?\b/.test(r.shipping_price) ? 0 : null),
     freeShipping: r.shipping_price ? parsePrice(r.shipping_price) == null && /^0/.test(r.shipping_price) : null,
     origin: f.origin ?? "BR",
     taxesIncluded: (f.origin ?? "BR") === "BR",
-    isMarketplace: false,
+    isMarketplace: f.kind === "classificados",
   };
 }
 
@@ -100,7 +122,8 @@ export function parseFeed(body: string, f: FeedConfig): RawOffer[] {
     const arr: Record<string, unknown>[] = Array.isArray(j) ? j : (j.products ?? j.items ?? []);
     for (const o of arr) {
       const s = (k: string) => (o[k] == null ? null : String(o[k]));
-      records.push({ id: s("id"), title: s("title"), link: s("link") ?? s("url"), price: s("price"), sale_price: s("sale_price"), availability: s("availability"), image_link: s("image_link") ?? s("image"), brand: s("brand"), description: s("description"), condition: s("condition"), shipping_price: s("shipping_price") });
+      records.push({ id: s("id"), title: s("title"), link: s("link") ?? s("url"), price: s("price"), sale_price: s("sale_price"), availability: s("availability"), image_link: s("image_link") ?? s("image"), brand: s("brand"), description: s("description"), condition: s("condition"), shipping_price: s("shipping_price"),
+        shipping_available: s("shipping_available"), shipping_scope: s("shipping_scope"), shipping_program: s("shipping_program"), pickup: s("pickup"), protection: s("protection"), seller_type: s("seller_type"), seller_name: s("seller_name"), location: s("location") });
     }
   } else {
     const lines = body.split(/\r?\n/).filter(Boolean);
@@ -110,7 +133,8 @@ export function parseFeed(body: string, f: FeedConfig): RawOffer[] {
     for (const l of lines.slice(1)) {
       const cols = split(l);
       const get = (k: string) => { const i = head.indexOf(k); return i >= 0 && cols[i] ? cols[i] : null; };
-      records.push({ id: get("id"), title: get("title"), link: get("link"), price: get("price"), sale_price: get("sale_price"), availability: get("availability"), image_link: get("image_link"), brand: get("brand"), description: get("description"), condition: get("condition"), shipping_price: get("shipping") });
+      records.push({ id: get("id"), title: get("title"), link: get("link"), price: get("price"), sale_price: get("sale_price"), availability: get("availability"), image_link: get("image_link"), brand: get("brand"), description: get("description"), condition: get("condition"), shipping_price: get("shipping"),
+        shipping_available: get("shipping_available"), shipping_scope: get("shipping_scope"), shipping_program: get("shipping_program"), pickup: get("pickup"), protection: get("protection"), seller_type: get("seller_type"), seller_name: get("seller_name"), location: get("location") });
     }
   }
   return records.map((r) => toOffer(r, f)).filter((x): x is RawOffer => !!x);

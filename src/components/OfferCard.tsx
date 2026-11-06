@@ -57,6 +57,7 @@ export function OfferCard({ item, index = 0, favorite = false }: { item: Analyze
         </div>
         <div className="flex flex-wrap gap-1">
           <span className={`chip ${a.condition === "novo" ? "" : "!text-accent-2 !border-accent-2/40"}`}>{CONDITION[a.condition]}</span>
+          {a.delivery.protection && <span className="chip !text-good !border-good/40" title={a.delivery.protection}>Proteção ao comprador</span>}
           <span className="chip" style={{ color: RISK[a.risk.level][1], borderColor: "currentColor" }} title={a.risk.reasons.join(" ")}>{RISK[a.risk.level][0]}</span>
         </div>
         <Link href={`/oferta/${o.id}`} className="text-sm font-medium leading-snug line-clamp-2 hover:text-accent" title={o.title}>{o.title}</Link>
@@ -76,7 +77,8 @@ export function OfferCard({ item, index = 0, favorite = false }: { item: Analyze
             {a.market.savings != null && a.market.savings > 0 && <div className="flex justify-between gap-2"><span>Economia estimada</span><span className="num text-good">{brl(a.market.savings)} ({Math.round((a.market.discount ?? 0) * 100)}%)</span></div>}
             <div className="flex justify-between gap-2"><span>Custo final</span><span className="num text-fg">{brl(a.cost.total)}{!a.cost.totalIsComplete && <span className="text-faint"> + frete</span>}</span></div>
             {a.cost.importTax != null && <div className="flex justify-between"><span>Impostos (est.)</span><span className="num">{brl((a.cost.importTax ?? 0) + (a.cost.icms ?? 0))}</span></div>}
-            <div className="flex justify-between gap-2"><span>Entrega</span><span className="text-right">{deliveryText(o)}</span></div>
+            <div className="flex justify-between gap-2"><span>Envio</span><span className={`text-right ${a.delivery.deliverable === true ? "text-good" : a.delivery.deliverable === false ? "text-bad" : "text-faint"}`}>{a.delivery.mode === "envio-nacional" ? "nacional" : a.delivery.mode === "envio-local" ? "só local" : a.delivery.mode === "internacional" ? "internacional" : a.delivery.mode === "retirada" ? "só retirada" : a.delivery.mode === "sem-envio" ? "sem envio" : "não confirmado"}</span></div>
+            <div className="flex justify-between gap-2"><span>Prazo</span><span className="text-right">{deliveryText(o)}</span></div>
             <div className="flex justify-between gap-2"><span>Local do vendedor</span><span>{o.sellerLocation ?? "não informado"}{o.pickup ? " · retirada" : ""}</span></div>
             <div className="flex justify-between gap-2"><span>Verificado em</span><span className="num">{new Date(o.lastCheckedAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}</span></div>
             <div className="flex justify-between gap-2"><span>Loja</span><span className="text-right truncate max-w-[65%]" title={a.storeReputation.basis}>{o.storeName}{o.sellerName && o.isMarketplace && o.sellerName !== o.storeName ? ` · ${o.sellerName}` : ""} · <span className={a.storeReputation.score >= 72 ? "text-good" : a.storeReputation.score >= 58 ? "text-mid" : "text-bad"}>{a.storeReputation.label}</span></span></div>

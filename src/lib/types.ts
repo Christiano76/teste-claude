@@ -5,8 +5,9 @@
  * A interface exibe "não verificado" para qualquer `null`.
  */
 
-export type Category = "pc" | "monitor";
-export type SearchMode = "pc" | "pc-monitor" | "monitor";
+/** pc = computador completo; monitor; kit = kit de hardware (processador + placa-mãe ± memória). */
+export type Category = "pc" | "monitor" | "kit";
+export type SearchMode = "pc" | "pc-monitor" | "monitor" | "kit" | "garimpo-entrega";
 export type Origin = "BR" | "INTL";
 /** Estado de conservação (6 classes). */
 export type Condition = "novo" | "seminovo" | "usado" | "recondicionado" | "mostruario" | "nao-informado";
@@ -55,6 +56,14 @@ export interface RawOffer {
   sellerType: SellerType | null;
   /** Retirada presencial disponível (null = não informado). */
   pickup: boolean | null;
+  /** Envio confirmado pela fonte (true), sem envio (false) ou não confirmado (null). */
+  shipAvailable: boolean | null;
+  /** Alcance do envio: nacional, só para a cidade/região, ou internacional. */
+  shipScope: "nacional" | "local" | "internacional" | null;
+  /** Programa de envio da plataforma (ex.: "Mercado Envios Full", "Entrega Fácil OLX"). */
+  shipProgram: string | null;
+  /** Proteção ao comprador da plataforma (ex.: "Compra Garantida", "Garantia OLX"). */
+  protection: string | null;
   brand: string | null;
   categoryHint: Category | null;
   /** Texto extra com especificações (descrição/ficha técnica). */
@@ -181,6 +190,15 @@ export interface Analysis {
   storeReputation: { score: number; label: string; basis: string };
   priceInsight: PriceInsight | null;
   suspicious: boolean;
+  delivery: {
+    mode: "envio-nacional" | "envio-local" | "internacional" | "retirada" | "sem-envio" | "nao-confirmado";
+    /** true = envio confirmado para o comprador; false = não entrega; null = não confirmado. */
+    deliverable: boolean | null;
+    label: string;
+    program: string | null;
+    protection: string | null;
+    pickup: boolean | null;
+  };
   condition: Condition;
   market: MarketEstimate;
   risk: { level: RiskLevel; reasons: string[] };

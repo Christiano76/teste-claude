@@ -15,20 +15,22 @@ import { findOffers, marketPoints, type OfferFilters } from "./repository";
 
 const curveCache = new Map<Category, { at: number; curve: MarketCurve }>();
 
-const sampleCache: { at: number; v: { pc: SamplePoint[]; monitor: SamplePoint[] } } | { at: 0; v: null } = { at: 0, v: null };
+const sampleCache: { at: number; v: { pc: SamplePoint[]; monitor: SamplePoint[]; kit: SamplePoint[] } } | { at: 0; v: null } = { at: 0, v: null };
 
 /** Amostra de anúncios ativos usada para o preço médio por comparáveis (cache de 10 min). */
-export async function marketSample(): Promise<{ pc: SamplePoint[]; monitor: SamplePoint[] }> {
+export async function marketSample(): Promise<{ pc: SamplePoint[]; monitor: SamplePoint[]; kit: SamplePoint[] }> {
   if (sampleCache.v && Date.now() - sampleCache.at < 10 * 60_000) return sampleCache.v;
   const rows = await query<{ id: string; category: Category; price: string; condition: Condition | null; specs: ParsedSpecs }>(
     `SELECT id, category, price, condition, specs FROM offers WHERE active AND available IS TRUE AND origin = 'BR' AND last_seen_at > now() - interval '7 days'`,
   );
-  const v = { pc: [] as SamplePoint[], monitor: [] as SamplePoint[] };
+  const v = { pc: [] as SamplePoint[], monitor: [] as SamplePoint[], kit: [] as SamplePoint[] };
   for (const r of rows) {
     const cond = (r.condition ?? "nao-informado") as Condition;
     if (r.category === "pc" && r.specs.pc) {
       const x = pcPerformance(r.specs.pc).gamingIndex;
       if (x != null && r.specs.pc.cpu?.index != null) v.pc.push({ id: Number(r.id), x, price: Number(r.price), cond, kit: r.specs.pc.includesMonitor, cpu: r.specs.pc.cpu.index });
+    } else if (r.category === "kit" && r.specs.pc?.cpu?.index != null) {
+      v.kit.push({ id: Number(r.id), x: r.specs.pc.cpu.index, price: Number(r.price), cond, kit: !!r.specs.pc.ramGb, comp: kitComposition(r.specs) });
     } else if (r.category === "monitor" && r.specs.monitor?.resolutionLabel) {
       const m = r.specs.monitor;
       v.monitor.push({ id: Number(r.id), x: monitorQuality(m), price: Number(r.price), cond, res: m.resolutionLabel, hz: m.refreshHz, panel: m.panel });
@@ -36,6 +38,11 @@ export async function marketSample(): Promise<{ pc: SamplePoint[]; monitor: Samp
   }
   Object.assign(sampleCache, { at: Date.now(), v });
   return v;
+}
+
+/** Composição de um kit de hardware para comparar iguais com iguais. */
+export function kitComposition(s: ParsedSpecs): string {
+  return `${s.pc?.motherboard ? "placa" : "-"}|${s.pc?.ramGb ? "ram" : "-"}|${s.pc?.storage.length ? "ssd" : "-"}`;
 }
 
 export async function marketCurve(category: Category): Promise<MarketCurve> {
@@ -48,6 +55,7 @@ export async function marketCurve(category: Category): Promise<MarketCurve> {
       return e != null && specs.pc.cpu?.index != null ? [{ x: e, price }] : [];
     }
     if (category === "monitor" && specs.monitor?.resolutionLabel && specs.monitor.refreshHz) return [{ x: monitorQuality(specs.monitor), price }];
+    if (category === "kit" && specs.pc?.cpu?.index != null && specs.pc.motherboard && specs.pc.ramGb) return [{ x: specs.pc.cpu.index, price }];
     return [];
   });
   const curve = fitCurve(xy, REFERENCE[category]);
@@ -94,8 +102,8 @@ async function shippingQuotes(offers: Offer[], cep: string | null, liveLimit = 1
 
 export async function analyzeOffers(offers: Offer[], location: UserLocation | null): Promise<AnalyzedOffer[]> {
   if (!offers.length) return [];
-  const [stores, fx, pcCurve, monitorCurve, histories, sample] = await Promise.all([
-    storesMap(), usdBrl(), marketCurve("pc"), marketCurve("monitor"), getHistories(offers.map((o) => o.id)), marketSample(),
+  const [stores, fx, pcCurve, monitorCurve, kitCurve, histories, sample] = await Promise.all([
+    storesMap(), usdBrl(), marketCurve("pc"), marketCurve("monitor"), marketCurve("kit"), getHistories(offers.map((o) => o.id)), marketSample(),
   ]);
   // fotos repetidas entre vendedores diferentes
   const imgSellers = new Map<string, Set<string>>();
@@ -114,6 +122,8 @@ export async function analyzeOffers(offers: Offer[], location: UserLocation | nu
       icmsRate: config.importIcmsRate,
       pcCurve,
       monitorCurve,
+      kitCurve,
+      buyerUf: location?.uf ?? null,
       priceInsight: priceInsight(histories.get(o.id) ?? [], o.price, o.listPrice),
       sample,
       imageSellers: o.imageUrl ? imgSellers.get(o.imageUrl.replace(/_\d+\.(jpg|png|webp)$/i, ""))?.size ?? 0 : 0,
@@ -154,6 +164,8 @@ export interface SearchRequest extends Omit<OfferFilters, "category"> {
   sort?: "score" | "price" | "performance" | "delivery" | "discount" | "value";
   /** GARIMPO EXTREMO: só anúncios bem abaixo do preço médio, sem risco alto e com dados suficientes. */
   garimpo?: boolean;
+  /** Faixa do garimpo com entrega (pc-500, pc-700, pc-1000, monitor-200, kit-barato). */
+  tier?: string;
   page?: number;
   pageSize?: number;
   refresh?: boolean;
@@ -180,6 +192,9 @@ export interface SearchResponse {
   results: AnalyzedOffer[];
   combos?: ComboResult[];
   kitInsight?: string | null;
+  tiers?: { id: string; label: string; count: number }[];
+  /** true quando o CEP não foi informado: não dá para confirmar envio local. */
+  needsCep?: boolean;
   facets: Facets;
   market: { pc: MarketCurve; monitor: MarketCurve };
   generatedAt: string;
@@ -211,9 +226,30 @@ async function searchCategory(category: Category, req: SearchRequest, location: 
   const offers = await findOffers({ ...req, category, text: req.text, includesMonitor: category === "pc" ? req.includesMonitor : undefined });
   const analyzed = dedupe(await analyzeOffers(offers, location));
   return analyzed.filter((a) =>
+    // "somente entrega": exclui o que não tem envio confirmado PARA o comprador (ex.: envio só local em outra UF)
+    (req.deliveryMode !== "entrega" || a.analysis.delivery.deliverable === true) &&
     (req.minScore == null || a.analysis.score >= req.minScore) &&
     (req.maxDeliveryDays == null || (a.offer.delivery?.maxDays ?? 999) <= req.maxDeliveryDays) &&
     (!req.garimpo || isGarimpo(a)));
+}
+
+/** Faixas do GARIMPO EXTREMO COM ENTREGA (custo total = produto + frete + taxas conhecidos). */
+export const DELIVERY_TIERS = [
+  { id: "pc-500", label: "PC completo até R$ 500", category: "pc" as Category, max: 500 },
+  { id: "pc-700", label: "PC completo até R$ 700", category: "pc" as Category, max: 700 },
+  { id: "pc-1000", label: "PC completo até R$ 1.000", category: "pc" as Category, max: 1000 },
+  { id: "monitor-200", label: "Monitor até R$ 200", category: "monitor" as Category, max: 200 },
+  { id: "kit-barato", label: "Kit de hardware até R$ 400", category: "kit" as Category, max: 400 },
+] as const;
+export type TierId = (typeof DELIVERY_TIERS)[number]["id"];
+
+/** Faixa mais barata em que o anúncio se encaixa, exigindo envio confirmado e risco não alto. */
+export function deliveryTier(a: AnalyzedOffer): TierId | null {
+  const x = a.analysis;
+  if (x.delivery.deliverable !== true || x.risk.level === "alto" || a.offer.available !== true) return null;
+  const total = x.cost.total;
+  for (const t of DELIVERY_TIERS) if (a.offer.category === t.category && total <= t.max) return t.id;
+  return null;
 }
 
 /** Critério do GARIMPO EXTREMO. */
@@ -228,7 +264,8 @@ export async function search(req: SearchRequest): Promise<SearchResponse> {
   const location = req.cep ? await lookupCep(req.cep) : null;
   const page = Math.max(1, req.page ?? 1);
   const pageSize = Math.min(60, Math.max(6, req.pageSize ?? 24));
-  const categories: Category[] = req.mode === "monitor" ? ["monitor"] : req.mode === "pc" ? ["pc"] : ["pc", "monitor"];
+  const categories: Category[] =
+    req.mode === "monitor" ? ["monitor"] : req.mode === "pc" ? ["pc"] : req.mode === "kit" ? ["kit"] : req.mode === "garimpo-entrega" ? ["pc", "monitor", "kit"] : ["pc", "monitor"];
 
   // 1) coleta nas fontes (sob demanda, com cache)
   const sources: SourceRun[] = [];
@@ -241,7 +278,15 @@ export async function search(req: SearchRequest): Promise<SearchResponse> {
   let results: AnalyzedOffer[];
   let combos: ComboResult[] | undefined;
   let kitInsight: string | null | undefined;
-  if (req.mode === "pc-monitor") {
+  let tiers: { id: string; label: string; count: number }[] | undefined;
+  if (req.mode === "garimpo-entrega") {
+    const r2 = { ...req, deliveryMode: "entrega" as const, garimpo: false, minPrice: undefined };
+    const all = (await Promise.all((["pc", "monitor", "kit"] as Category[]).map((c) => searchCategory(c, r2, location)))).flat();
+    const withTier = all.map((a) => ({ a, t: deliveryTier(a) })).filter((x) => x.t);
+    tiers = DELIVERY_TIERS.map((t) => ({ id: t.id, label: t.label, count: withTier.filter((x) => x.t === t.id).length }));
+    results = withTier.filter((x) => !req.tier || x.t === req.tier).map((x) => x.a);
+    sortItems(results, req.sort ?? "price");
+  } else if (req.mode === "pc-monitor") {
     const pcs = await searchCategory("pc", { ...req, maxPrice: undefined, resolution: undefined, minRefresh: undefined }, location);
     const monitors = await searchCategory("monitor", { ...req, text: "", cpu: undefined, gpu: undefined, minRam: undefined, minStorage: undefined, maxPrice: undefined, brand: undefined }, location);
     ({ combos, kitInsight } = buildCombos(pcs, monitors, req.maxPrice, req.minPrice));
@@ -272,6 +317,8 @@ export async function search(req: SearchRequest): Promise<SearchResponse> {
     results: results.slice((page - 1) * pageSize, page * pageSize),
     combos: combos?.slice((page - 1) * pageSize, page * pageSize),
     kitInsight,
+    tiers,
+    needsCep: !location,
     facets,
     market: { pc: pcC, monitor: monC },
     generatedAt: new Date().toISOString(),

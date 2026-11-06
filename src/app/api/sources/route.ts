@@ -15,6 +15,16 @@ export async function GET() {
     const stats = await query<{ category: string; offers: string; stores: string; snapshots: string }>(
       `SELECT category, count(*) AS offers, count(DISTINCT store_slug) AS stores, 0 AS snapshots FROM offers WHERE active GROUP BY category`,
     );
+    const perSource = await query<{ source: string; active: string; used: string; ship: string; last_seen: Date | null }>(
+      `SELECT source, count(*) FILTER (WHERE active AND available IS TRUE) AS active,
+              count(*) FILTER (WHERE active AND available IS TRUE AND condition IN ('usado','seminovo','recondicionado','mostruario')) AS used,
+              count(*) FILTER (WHERE active AND available IS TRUE AND ship_available IS TRUE) AS ship,
+              max(last_seen_at) AS last_seen
+       FROM offers GROUP BY source`,
+    );
+    const lastErr = await query<{ source: string; error: string; finished_at: Date }>(
+      `SELECT DISTINCT ON (source) source, error, finished_at FROM search_runs WHERE status = 'error' ORDER BY source, started_at DESC`,
+    );
     const [snap] = await query<{ n: string; oldest: Date | null }>("SELECT count(*) AS n, min(captured_at) AS oldest FROM price_snapshots");
     const stores = await query<{ slug: string; name: string; reputation: number | null; discovered_via: string; offers: string }>(
       `SELECT s.slug, s.name, s.reputation, s.discovered_via, count(o.id) AS offers FROM stores s LEFT JOIN offers o ON o.store_slug = s.slug AND o.active GROUP BY s.slug ORDER BY count(o.id) DESC, s.name`,
@@ -23,7 +33,21 @@ export async function GET() {
       connectors: CONNECTORS.map((c) => {
         const last = runs.find((r) => r.source === c.id || (c.id === "feeds" && r.source.startsWith("feed")));
         const lastOk = okRuns.find((r) => r.source === c.id);
-        return { id: c.id, name: c.name, kind: c.kind, stores: c.stores, ...c.status(), lastRun: last ?? null, lastOk: lastOk?.last_ok ?? null, items24h: Number(lastOk?.items_24h ?? 0) };
+        const match = (src: string) => src === c.id || (c.id === "feeds" && src.startsWith("feed:"));
+        const counts = perSource.filter((p) => match(p.source));
+        const err = lastErr.filter((e) => match(e.source)).sort((a, b) => +b.finished_at - +a.finished_at)[0];
+        const st = c.status();
+        const listings = counts.reduce((n, p) => n + Number(p.active), 0);
+        // "funcionando" só com busca real bem-sucedida e anúncios na base
+        const works = st.configured && last?.status === "ok" && listings > 0;
+        return {
+          id: c.id, name: c.name, kind: c.kind, stores: c.stores, ...st, evidence: c.evidence ?? null,
+          realStatus: works ? "funcionando" : st.state === "unavailable" ? "sem-integracao" : !st.configured ? "requer-credenciais" : last?.status === "error" ? "erro" : "sem-dados",
+          listings, usedListings: counts.reduce((n, p) => n + Number(p.used), 0), shippingConfirmed: counts.reduce((n, p) => n + Number(p.ship), 0),
+          lastUpdate: counts.map((p) => p.last_seen).filter(Boolean).sort().pop() ?? null,
+          lastError: err ? { message: err.error, at: err.finished_at } : null,
+          lastRun: last ?? null, lastOk: lastOk?.last_ok ?? null, items24h: Number(lastOk?.items_24h ?? 0),
+        };
       }),
       unsupported: UNSUPPORTED_STORES,
       stats: {

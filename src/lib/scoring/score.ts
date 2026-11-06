@@ -13,7 +13,7 @@ import { classifyCondition, CONDITION_LABEL } from "../market/condition";
 import { estimateMarket, type SamplePoint } from "../market/estimate";
 import type { Analysis, Condition, CostBreakdown, Flag, Offer, PriceInsight, RiskLevel, ScoreComponent, Verdict } from "../types";
 import { clamp } from "../util/text";
-import { expectedPrice, type MarketCurve } from "./market";
+import { expectedPrice, REFERENCE, type MarketCurve } from "./market";
 import { type StoreRow, storeReputation, warrantyMonths } from "./reputation";
 import { detectSuspicious } from "./suspicious";
 
@@ -23,11 +23,14 @@ export interface ScoreContext {
   icmsRate: number;
   pcCurve: MarketCurve;
   monitorCurve: MarketCurve;
+  kitCurve?: MarketCurve;
+  /** UF do comprador (para entrega local). */
+  buyerUf?: string | null;
   priceInsight: PriceInsight | null;
   /** Frete/prazo cotado para o CEP do usuário (sobrepõe os dados genéricos da oferta). */
   shippingQuote?: { cost: number | null; minDays: number | null; maxDays: number | null; source: string } | null;
   /** Amostra de anúncios para preço médio por comparáveis. */
-  sample?: { pc: SamplePoint[]; monitor: SamplePoint[] };
+  sample?: { pc: SamplePoint[]; monitor: SamplePoint[]; kit?: SamplePoint[] };
   /** Quantos vendedores diferentes usam a mesma foto. */
   imageSellers?: number;
 }
@@ -232,6 +235,31 @@ export function analyzeOffer(o: Offer, ctx: ScoreContext): Analysis {
       caps.push(65);
       flags.push({ level: "warn", code: "monitor-specs", message: "Resolução ou frequência não informadas no anúncio." });
     }
+  } else if (o.category === "kit" && o.specs.pc) {
+    const k = o.specs.pc;
+    const kitCurve = ctx.kitCurve ?? REFERENCE.kit;
+    const ci = k.cpu?.index ?? null;
+    if (ci != null) {
+      expected = expectedPrice(kitCurve, ci) * (k.ramGb ? 1 : 0.85) * (k.motherboard ? 1 : 0.6);
+      components.push({ key: "valor", label: "Custo-benefício", weight: 0, value: Math.round(valueScore(expected, cost.total)), detail: `Preço final R$ ${cost.total.toFixed(0)} vs. ~R$ ${expected.toFixed(0)} por um kit com esse processador (${kitCurve.source === "dados-coletados" ? `curva de ${kitCurve.n} kits` : "curva de referência"}).` });
+    } else {
+      components.push({ key: "valor", label: "Custo-benefício", weight: 0, value: 30, detail: "Modelo do processador não informado." });
+      caps.push(59);
+    }
+    let q = 70;
+    const notes: string[] = [];
+    if (!k.motherboard) { q -= 20; notes.push("sem placa-mãe (ou não informada)"); }
+    if (!k.ramGb) { q -= 12; notes.push("sem memória (ou não informada)"); }
+    if (k.ramType === "DDR3") { q -= 15; notes.push("DDR3 (plataforma obsoleta)"); }
+    if (k.ramType === "DDR5") { q += 10; notes.push("DDR5"); }
+    if (k.cpu?.generationAge === "obsolete") { q -= 15; notes.push("processador muito antigo"); }
+    else if (k.cpu?.generationAge === "current") { q += 10; notes.push("processador atual"); }
+    if (k.ramGb && k.ramGb >= 16) { q += 5; notes.push(`${k.ramGb} GB de RAM`); }
+    components.push({ key: "qualidade", label: "Qualidade do kit", weight: 0, value: Math.round(clamp(q)), detail: notes.join("; ") || "Sem ressalvas nos dados informados." });
+    const sock = k.cpu?.socket ?? k.motherboard?.socket ?? null;
+    const up = sock === "AM5" ? 90 : sock === "LGA1851" ? 70 : sock === "AM4" ? 65 : sock === "LGA1700" ? 55 : sock === "LGA1200" ? 35 : sock ? 15 : 40;
+    components.push({ key: "upgrade", label: "Potencial de upgrade", weight: 0, value: up, detail: sock ? `plataforma ${sock}` : "plataforma não identificada" });
+    mq = ci;
   }
 
   components.push({ key: "loja", label: "Confiabilidade da loja", weight: 0, value: rep.score, detail: rep.basis });
@@ -241,11 +269,24 @@ export function analyzeOffer(o: Offer, ctx: ScoreContext): Analysis {
 
   const weights: Record<string, number> = o.category === "pc"
     ? { valor: 30, desempenho: 14, qualidade: 12, equilibrio: 7, loja: 10, garantia: 6, estoque: 5, entrega: 10, upgrade: 6 }
-    : { valor: 32, qualidade: 25, loja: 12, garantia: 9, estoque: 7, entrega: 15 };
+    : o.category === "kit"
+      ? { valor: 34, qualidade: 22, upgrade: 10, loja: 12, garantia: 7, estoque: 5, entrega: 10 }
+      : { valor: 32, qualidade: 25, loja: 12, garantia: 9, estoque: 7, entrega: 15 };
   let score = weighted(components, weights);
 
+  const condition: Condition = o.condition ?? classifyCondition(o.title, o.specsText, null);
+  // 2) Desconto real contra o preço médio de comparáveis no mesmo estado
+  const x = o.category === "pc" ? performance?.gamingIndex ?? null : mq;
+  const sample = ctx.sample ? (o.category === "pc" ? ctx.sample.pc : o.category === "kit" ? ctx.sample.kit ?? [] : ctx.sample.monitor) : [];
+  const market = estimateMarket({
+    id: o.id, category: o.category, x, kit: !!o.specs.pc?.includesMonitor,
+    comp: o.category === "kit" ? `${o.specs.pc?.motherboard ? "placa" : "-"}|${o.specs.pc?.ramGb ? "ram" : "-"}|${o.specs.pc?.storage.length ? "ssd" : "-"}` : undefined, res: o.specs.monitor?.resolutionLabel, hz: o.specs.monitor?.refreshHz,
+    panel: o.specs.monitor?.panel, cpu: o.specs.pc?.cpu?.index ?? null, cond: condition, total: cost.total, sample, curve: o.category === "pc" ? ctx.pcCurve : o.category === "kit" ? ctx.kitCurve ?? REFERENCE.kit : ctx.monitorCurve, kitExtra,
+  });
   // Sinais de alerta
-  flags.push(...detectSuspicious({ offer: o, expectedPrice: expected, totalCost: cost.total }));
+  // Preço de referência para golpe: o de anúncios comparáveis (no mesmo estado) quando houver; senão a curva
+  const refPrice = market.comparables > 0 && market.price != null ? market.price : expected;
+  flags.push(...detectSuspicious({ offer: o, expectedPrice: refPrice, totalCost: cost.total }));
   const suspicious = flags.some((f) => f.level === "danger" && ["too-cheap", "keyword"].includes(f.code));
   if (suspicious) caps.push(39);
   if (flags.some((f) => f.code === "psu-weak")) caps.push(55);
@@ -264,7 +305,6 @@ export function analyzeOffer(o: Offer, ctx: ScoreContext): Analysis {
   const legacy = Math.round(clamp(score));
 
   // ---------- três notas independentes ----------
-  const condition: Condition = o.condition ?? classifyCondition(o.title, o.specsText, null);
   // 1) Custo-benefício: tudo menos a confiabilidade da loja
   const cbWeights = { ...weights, loja: 0 };
   let cb = weighted(components.map((c) => ({ ...c })), cbWeights);
@@ -272,13 +312,6 @@ export function analyzeOffer(o: Offer, ctx: ScoreContext): Analysis {
   if (cbCaps.length) cb = Math.min(cb, ...cbCaps);
   for (const c of components) c.weight = weights[c.key] ?? 0;
 
-  // 2) Desconto real contra o preço médio de comparáveis no mesmo estado
-  const x = o.category === "pc" ? performance?.gamingIndex ?? null : mq;
-  const sample = ctx.sample ? (o.category === "pc" ? ctx.sample.pc : ctx.sample.monitor) : [];
-  const market = estimateMarket({
-    id: o.id, category: o.category, x, kit: !!o.specs.pc?.includesMonitor, res: o.specs.monitor?.resolutionLabel, hz: o.specs.monitor?.refreshHz,
-    panel: o.specs.monitor?.panel, cpu: o.specs.pc?.cpu?.index ?? null, cond: condition, total: cost.total, sample, curve: o.category === "pc" ? ctx.pcCurve : ctx.monitorCurve, kitExtra,
-  });
   let desconto = market.discount == null ? null : Math.round(clamp(35 + market.discount * 130));
   // sem anúncios comparáveis, a estimativa vem só da curva: confiança baixa
   if (desconto != null && market.comparables === 0) desconto = Math.min(desconto, 60);
@@ -287,7 +320,7 @@ export function analyzeOffer(o: Offer, ctx: ScoreContext): Analysis {
   const reasons: string[] = [];
   let conf = rep.score;
   reasons.push(`Loja/vendedor: ${rep.label.toLowerCase()} (${rep.score}/100).`);
-  if (o.sellerType === "pessoa-fisica") { conf -= 8; reasons.push("Vendedor pessoa física: sem estrutura de loja para trocas e garantia."); }
+  if (o.sellerType === "pessoa-fisica") { conf -= 6; reasons.push("Vendedor pessoa física: sem estrutura de loja para trocas e garantia."); }
   if (o.sellerType === "profissional" && o.isMarketplace) reasons.push("Vendedor profissional (CNPJ) em marketplace.");
   const missing = o.specs.missing.length;
   const critical = o.specs.missing.filter((m) => /processador|placa de v[ií]deo|mem[oó]ria|armazenamento|resolu|frequ|tamanho/.test(m));
@@ -296,22 +329,32 @@ export function analyzeOffer(o: Offer, ctx: ScoreContext): Analysis {
     reasons.push(`${critical.length ? "Faltam dados importantes" : "Faltam detalhes"} no anúncio: ${o.specs.missing.slice(0, 4).join(", ")}.`);
   }
   const dangers = flags.filter((f) => f.level === "danger");
-  const warns = flags.filter((f) => f.level === "warn");
+  // Só sinais de RISCO reduzem a confiabilidade; problemas de qualidade (plataforma antiga, gargalo) ficam no custo-benefício
+  const RISK_WARN = new Set(["cheap-unknown-seller", "huge-discount", "bad-seller", "inconsistent", "fake-discount", "fake-gamer"]);
+  const warns = flags.filter((f) => f.level === "warn" && RISK_WARN.has(f.code));
   conf -= Math.min(70, dangers.length * 35) + Math.min(18, warns.length * 5);
   for (const f of [...dangers, ...warns].slice(0, 4)) reasons.push(f.message);
   if (market.discount != null && market.discount > 0.55) { conf -= 20; reasons.push(`Preço ${Math.round(market.discount * 100)}% abaixo do mercado: descontos extremos exigem confirmar o produto e o vendedor.`); }
   if ((ctx.imageSellers ?? 0) >= 3) { conf -= o.sellerType === "pessoa-fisica" ? 15 : 5; reasons.push(`A mesma foto aparece em anúncios de ${ctx.imageSellers} vendedores diferentes (imagem genérica ou copiada).`); }
-  if (condition !== "novo" && warrantyMonths(o.warrantyText).months == null) { conf -= 5; reasons.push("Item não novo sem garantia informada."); }
+  if (condition !== "novo" && warrantyMonths(o.warrantyText).months == null) { conf -= 3; reasons.push("Item não novo sem garantia informada."); }
   if (o.available !== true) { conf -= 10; reasons.push("Disponibilidade não confirmada."); }
+  if (o.protection) { conf += 4; reasons.push(`Proteção ao comprador: ${o.protection}.`); }
+  else if (o.sellerType === "pessoa-fisica") { conf -= 6; reasons.push("Sem proteção ao comprador informada pela plataforma."); }
   conf = Math.round(clamp(conf));
 
   let level: RiskLevel;
   const insufficient = (o.category === "pc" && (performance?.gamingIndex == null || critical.length >= 2)) || (o.category === "monitor" && (!o.specs.monitor?.resolutionLabel || !o.specs.monitor?.refreshHz));
-  if (dangers.length || conf < 40) level = "alto";
+  // alto risco exige sinal concreto (golpe/pagamento por fora/preço absurdo) ou confiança muito baixa
+  if (dangers.length || conf < 25) level = "alto";
   else if (insufficient) level = "insuficiente";
   else if (warns.length >= 1 || conf < 55) level = "atencao";
   else level = "baixo";
   if (level === "baixo") reasons.push("Nenhum sinal de risco encontrado nos dados disponíveis — isso não garante que o anúncio seja seguro.");
+  reasons.push("Pague e combine o envio só pela plataforma. Não aceite PIX por fora, depósito antecipado ou negociação que tire a proteção ao comprador.");
+
+  // Entrega para o comprador
+  const delivery = deliveryInfo(o, ctx.buyerUf ?? null);
+  if (delivery.deliverable === false && delivery.mode === "envio-local") flags.push({ level: "info", code: "local-only", message: delivery.label });
 
   // Nota geral
   let geral = 0.45 * cb + 0.25 * (desconto ?? 35) + 0.3 * conf;
@@ -331,6 +374,7 @@ export function analyzeOffer(o: Offer, ctx: ScoreContext): Analysis {
     storeReputation: rep,
     priceInsight: ctx.priceInsight,
     suspicious,
+    delivery,
     condition,
     market,
     risk: { level, reasons },
@@ -344,3 +388,23 @@ export function analyzeOffer(o: Offer, ctx: ScoreContext): Analysis {
 }
 
 export { CONDITION_LABEL };
+
+/**
+ * Modalidade de entrega como a fonte informou. Nunca presume envio:
+ * sem confirmação da fonte, fica "nao-confirmado".
+ */
+export function deliveryInfo(o: Offer, buyerUf: string | null): Analysis["delivery"] {
+  const base = { program: o.shipProgram, protection: o.protection, pickup: o.pickup };
+  if (o.shipAvailable === true) {
+    if (o.shipScope === "local") {
+      const seller = o.sellerLocation?.toUpperCase().match(/\b[A-Z]{2}\b/)?.[0] ?? null;
+      const deliverable = buyerUf && seller ? buyerUf.toUpperCase() === seller : null;
+      return { ...base, mode: "envio-local", deliverable, label: deliverable === false ? `Envio só local (${seller}); não atende o seu CEP (${buyerUf}).` : `Envio local${seller ? ` (${seller})` : ""}${deliverable == null ? " — confirme se atende o seu CEP" : ""}.` };
+    }
+    if (o.shipScope === "internacional") return { ...base, mode: "internacional", deliverable: true, label: "Envio internacional para o Brasil." };
+    return { ...base, mode: "envio-nacional", deliverable: true, label: `Envio para todo o Brasil${o.shipProgram ? ` (${o.shipProgram})` : ""}.` };
+  }
+  if (o.pickup === true) return { ...base, mode: "retirada", deliverable: false, label: "Somente retirada presencial (envio não informado)." };
+  if (o.shipAvailable === false) return { ...base, mode: "sem-envio", deliverable: false, label: "Vendedor não faz envio." };
+  return { ...base, mode: "nao-confirmado", deliverable: null, label: "Modalidade de envio não confirmada pela fonte." };
+}

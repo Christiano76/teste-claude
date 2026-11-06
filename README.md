@@ -6,22 +6,21 @@ O PC Hunter coleta ofertas **reais** de PCs gamer e monitores com entrega para o
 
 ## Status das integrações (testado em 06/11/2026)
 
-| Fonte | Tipo | Status | O que falta |
+Detalhes de cada conector (o que foi verificado, mapeamento de campos, credenciais) em **[docs/CONECTORES.md](docs/CONECTORES.md)**.
+
+| Prioridade | Fonte | Tipo | Status real |
 |---|---|---|---|
-| **KaBuM!** | JSON público do catálogo (`servicespub.prod.api.aws.grupokabum.com.br`) | ✅ **Funcionando** — cerca de 1.500 ofertas reais coletadas, com ficha técnica, garantia, estoque e ofertas relâmpago | Nada. Não expõe frete por CEP, então mostramos só a flag de frete grátis. |
-| **Mercado Livre** | API oficial | ⚠️ Implementado, **não testado**: a busca retorna `403 forbidden` sem token (verificado) | `ML_ACCESS_TOKEN` ou `ML_CLIENT_ID`/`ML_CLIENT_SECRET`. Com token, também cota **frete e prazo por CEP**. |
-| **Amazon Brasil** | PA-API 5 (assinatura AWS SigV4) | ⚠️ Implementado, **não testado** | Conta de Associado com acesso à PA-API. A Amazon está migrando associados para uma nova API; se a PA-API for descontinuada na sua conta, o conector precisa ser adaptado. |
-| **AliExpress** | Affiliate API | ⚠️ Implementado, **não testado** | `ALIEXPRESS_APP_KEY`/`SECRET`. Impostos de importação são estimados à parte. |
-| **Shopee** | Affiliate Open API (GraphQL) | ⚠️ Implementado, **não testado** | `SHOPEE_AFFILIATE_APP_ID`/`SECRET` |
-| **Feeds de produtos** | Google Merchant XML / CSV / JSON | ✅ Parser testado com fixtures | Um feed real (`PRODUCT_FEEDS`), por exemplo de programas de afiliados (Awin, Lomadee, Rakuten…). É o caminho para Pichau, Terabyte, Magalu e outras lojas. |
-| OLX | — | ❌ Sem API pública de busca (a API é para parceiros publicarem); termos proíbem coleta automatizada | Parceria autorizada com a OLX |
-| Facebook Marketplace | — | ❌ A Meta não oferece API de busca do Marketplace | Autorização formal da Meta |
-| Enjoei, grupos, fóruns, classificados | — | ❌ Sem API pública | Feed/RSS autorizado (`PRODUCT_FEEDS`) |
-| Pichau, TerabyteShop, Magazine Luiza, GK Infostore | — | ❌ Bloqueados: `HTTP 403` de anti-bot nos testes | Não contornamos proteções anti-bot (termos de uso). Use feed de afiliado. |
-| Patoloco | — | ❌ Não testado: redireciona para `patoloco.com.br`, que não estava liberado na rede do teste | Sem API pública conhecida. Use feed, se a loja oferecer. |
-| ViaCEP + BrasilAPI | CEP → UF/cidade | ✅ Funcionando | — |
-| Banco Central (PTAX) | Cotação do dólar | ✅ Funcionando | — |
-| Resend | E-mail de alertas | ⚠️ Implementado, **não testado** | `RESEND_API_KEY`. Sem ela, os alertas aparecem só na página **Alertas**. |
+| 1 | OLX Brasil | Classificados | ❌ Sem integração autorizada: o portal da OLX só tem APIs de publicação/leads/chat; o site bloqueia acesso automatizado (403) |
+| 2 | Mercado Livre | API oficial | ⚠️ Implementado e testado com o formato da API; **requer token** (403 sem ele) |
+| 3 | Facebook Marketplace | Classificados | ❌ Sem integração autorizada (sem API de busca; robots restritivo) |
+| 4 | Amazon Brasil | PA-API 5 | ⚠️ Implementado; requer credenciais de Associado |
+| 5 | Enjoei | Classificados | ❌ Sem integração autorizada (robots proíbe `/busca`) |
+| 6 | Shopee | API de afiliados | ⚠️ Implementado; requer credenciais |
+| — | KaBuM! + marketplace | JSON público | ✅ **Funcionando**: cerca de 2.160 anúncios (PCs, monitores, kits), incluindo usados e recondicionados |
+| — | AliExpress | API de afiliados | ⚠️ Implementado; requer credenciais |
+| — | Feeds (lojas/classificados autorizados) | Feed | ✅ Parser testado; nenhum feed configurado |
+| — | Pichau, Terabyte, Magalu, GK, Patoloco | — | ❌ Bloqueiam coleta automatizada; sem API pública |
+| — | ViaCEP + BrasilAPI, Banco Central (PTAX) | Auxiliares | ✅ Funcionando |
 
 A página **/fontes** do app mostra esse status ao vivo, com o resultado da última coleta de cada conector.
 
@@ -40,10 +39,18 @@ A página **/fontes** do app mostra esse status ao vivo, com o resultado da últ
 - **Mineração contínua:** cron que faz coleta profunda, enriquece fichas técnicas, desativa ofertas que sumiram e verifica alertas. A busca do usuário também coleta sob demanda, com cache.
 - **Descoberta de lojas:** vendedores e lojas novos que chegam pelas fontes (marketplaces, feeds) entram na tabela `stores` com reputação "desconhecida".
 
+## Entrega e Garimpo com entrega
+
+- **Filtros de entrega:** *Somente com entrega disponível* (só envio confirmado para o seu CEP; envio só local de outra UF fica de fora), *Entrega ou retirada presencial* e *Somente retirada presencial*. Envio que a fonte não confirma aparece como **não confirmado** e nunca é tratado como envio.
+- **Modalidade de cada anúncio:** envio nacional, envio só local, internacional, só retirada, sem envio ou não confirmado, mais o programa de envio (ex.: Mercado Envios Full) e a proteção ao comprador da plataforma.
+- **GARIMPO EXTREMO COM ENTREGA (/buscar/garimpo-entrega):** PCs até R$ 500, R$ 700 e R$ 1.000, monitores até R$ 200 e kits de hardware até R$ 400, pelo custo total (produto + frete + taxas conhecidos), sem preço mínimo. Exige envio confirmado e risco diferente de alto. Hoje (só KaBuM! ativa): 24 PCs até R$ 1.000, 6 monitores até R$ 200, 12 kits até R$ 400; nenhum PC abaixo de R$ 700.
+- **Kits de hardware (/buscar/kit):** processador + placa-mãe (± memória/SSD), comparados com kits da mesma composição.
+- **Segurança:** preço baixo nunca aumenta a confiança. Descontos extremos reduzem a confiabilidade, e todo anúncio traz a recomendação de pagar e combinar o envio pela plataforma (sem PIX por fora nem depósito antecipado). A confiabilidade só cai por sinais de risco; problemas de qualidade ficam no custo-benefício.
+
 ## Garimpo: estado, preço de mercado, risco e três notas
 
 - **Estado de conservação** (6 classes): Novo, Seminovo, Usado, Recondicionado, Mostruário, Não informado. Vem do dado estruturado da fonte (ex.: *open box* da KaBuM!) e do texto do anúncio. A coleta agendada também busca usados, seminovos e recondicionados (o marketplace da KaBuM! tem anúncios reais desse tipo).
-- **Preço médio de mercado:** mediana de anúncios **novos comparáveis**. Para PCs, é preciso desempenho em jogos equivalente (±12%, depois ±25%), processador de classe parecida e o mesmo formato (com/sem monitor). Para monitores, mesma resolução, frequência próxima e mesmo painel. O valor é ajustado pelo estado: um usado é comparado ao preço justo de um usado (novo 100%, mostruário 88%, recondicionado 80%, seminovo 75%, usado 68%). Sem comparáveis suficientes, usa a curva de mercado, e o desconto fica marcado como estimativa de baixa confiança.
+- **Preço médio de mercado:** mediana de anúncios **novos comparáveis**, descartando os 25% mais caros (anúncios fora do preço praticado). Para PCs, é preciso desempenho em jogos equivalente (±12%, depois ±25%), processador de classe parecida e o mesmo formato (com/sem monitor). Para monitores, mesma resolução, frequência próxima e mesmo painel. O valor é ajustado pelo estado: um usado é comparado ao preço justo de um usado (novo 100%, mostruário 88%, recondicionado 80%, seminovo 75%, usado 68%). Sem comparáveis suficientes, usa a curva de mercado, e o desconto fica marcado como estimativa de baixa confiança.
 - **Três notas independentes (0–100):** **Custo-benefício** (todos os critérios técnicos e de entrega, sem a reputação), **Desconto real** (35 pontos no preço médio; cada 10% abaixo soma 13) e **Confiabilidade** (loja/vendedor, pessoa física ou profissional, dados que faltam, sinais de golpe, foto repetida entre vendedores, item usado sem garantia, estoque).
 - **Nota geral** = 45% custo-benefício + 25% desconto + 30% confiabilidade. Fica limitada a 35 em **alto risco** e a 55 com **informações insuficientes**.
 - **Risco:** Baixo risco aparente · Atenção · Alto risco · Informações insuficientes, sempre com os motivos. Sinais avaliados: preço extremo, palavras de golpe, pedido de pagamento ou contato fora da plataforma, especificações inconsistentes, vendedor mal avaliado, foto reaproveitada, dados ausentes. **Nenhum anúncio é apresentado como seguro.**
@@ -120,7 +127,7 @@ cp .env.example .env.local        # ajuste DATABASE_URL
 npm run db:migrate                # cria as tabelas e cadastra as lojas
 npm run refresh -- 3              # primeira coleta (3 páginas por consulta)
 npm run dev                       # http://localhost:3000
-npm test                          # 38 testes
+npm test                          # 65 testes
 npm run build && npm start
 ```
 

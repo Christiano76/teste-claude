@@ -17,7 +17,8 @@ export interface SearchPage {
 export interface ConnectorStatus {
   configured: boolean;
   /** "ok" = testado e funcionando; "needs-credentials"; "blocked"; "disabled" */
-  state: "ok" | "needs-credentials" | "blocked" | "disabled" | "unverified";
+  /** unavailable = não existe meio autorizado de busca para terceiros (nunca exibido como funcional). */
+  state: "ok" | "needs-credentials" | "blocked" | "disabled" | "unverified" | "unavailable";
   message: string;
   requires: string[];
   docsUrl: string;
@@ -33,7 +34,9 @@ export interface Connector {
   name: string;
   /** Lojas cobertas por este conector. */
   stores: string[];
-  kind: "public-json" | "official-api" | "affiliate-api" | "feed";
+  kind: "public-json" | "official-api" | "affiliate-api" | "feed" | "classificados";
+  /** Evidência verificada do status (data e o que foi testado). */
+  evidence?: string;
   status(): ConnectorStatus;
   search(p: SearchParams): Promise<SearchPage>;
   /** Busca detalhes (ficha técnica) de um item. */
@@ -53,7 +56,7 @@ export function emptyOffer(partial: Pick<RawOffer, "source" | "externalId" | "ti
     imageUrl: null, installmentPrice: null, listPrice: null, currency: "BRL", available: null, stockQty: null,
     sellerName: null, isMarketplace: null, sellerRating: null, sellerRatingCount: null, productRating: null,
     productRatingCount: null, warrantyText: null, freeShipping: null, shippingCost: null, delivery: null, origin: null,
-    taxesIncluded: null, condition: null, sellerType: null, pickup: null, brand: null, categoryHint: null, specsText: null, sellerLocation: null,
+    taxesIncluded: null, condition: null, sellerType: null, pickup: null, shipAvailable: null, shipScope: null, shipProgram: null, protection: null, brand: null, categoryHint: null, specsText: null, sellerLocation: null,
     ...partial,
   };
 }

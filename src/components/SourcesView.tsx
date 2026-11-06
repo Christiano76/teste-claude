@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 
-interface Conn { id: string; name: string; kind: string; state: string; configured: boolean; message: string; requires: string[]; docsUrl: string; lastRun: { status: string; items: number; error: string | null; finished_at: string | null } | null; lastOk: string | null; items24h: number }
+interface Conn { id: string; name: string; kind: string; state: string; configured: boolean; message: string; requires: string[]; docsUrl: string; evidence: string | null; realStatus: string; listings: number; usedListings: number; shippingConfirmed: number; lastUpdate: string | null; lastError: { message: string; at: string } | null; lastRun: { status: string; items: number; error: string | null; finished_at: string | null } | null; lastOk: string | null; items24h: number }
 interface Resp { connectors: Conn[]; unsupported: { store: string; reason: string }[]; stats: { offers: Record<string, number>; snapshots: number; historySince: string | null }; stores: { slug: string; name: string; reputation: number | null; discovered_via: string; offers: number }[]; auxiliary: { name: string; purpose: string; state: string }[] }
 
 const STATE: Record<string, [string, string]> = {
@@ -12,7 +12,14 @@ const STATE: Record<string, [string, string]> = {
   disabled: ["Desativado", "text-faint border-line"],
 };
 
-const KIND: Record<string, string> = { "public-json": "Catálogo público", "official-api": "API oficial", "affiliate-api": "API de afiliados", feed: "Feed de produtos" };
+const KIND: Record<string, string> = { "public-json": "Catálogo público (JSON)", "official-api": "API oficial", "affiliate-api": "API de afiliados", feed: "Feed de produtos", classificados: "Classificados" };
+const REAL: Record<string, [string, string]> = {
+  funcionando: ["Funcionando", "text-good border-good/30"],
+  "requer-credenciais": ["Requer credenciais", "text-mid border-mid/30"],
+  "sem-integracao": ["Sem integração autorizada", "text-bad border-bad/30"],
+  erro: ["Erro na última coleta", "text-bad border-bad/30"],
+  "sem-dados": ["Configurado, sem dados ainda", "text-accent border-accent/30"],
+};
 
 export function SourcesView() {
   const [d, setD] = useState<Resp | null>(null);
@@ -35,19 +42,25 @@ export function SourcesView() {
         <h2 className="font-semibold">Conectores de ofertas</h2>
         <div className="grid gap-3 md:grid-cols-2">
           {d.connectors.map((c) => {
-            const effective = c.lastRun?.status === "error" ? "blocked" : c.lastRun?.status === "ok" ? "ok" : c.state;
-            const [label, cls] = STATE[effective] ?? STATE.unverified;
+            const [label, cls] = REAL[c.realStatus] ?? REAL["sem-dados"];
             return (
               <div key={c.id} className="card p-4 space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-medium">{c.name}</span>
                   <span className={`chip ${cls}`}>{label}</span>
                 </div>
-                <div className="text-xs text-faint">{KIND[c.kind]}</div>
+                <div className="text-xs text-faint">{KIND[c.kind] ?? c.kind}</div>
                 <p className="text-sm text-muted">{c.message}</p>
-                {c.lastRun && <p className="text-xs text-muted">Última coleta: {c.lastRun.status === "ok" ? `${c.lastRun.items} itens` : `erro — ${c.lastRun.error}`} {c.lastRun.finished_at && `· ${new Date(c.lastRun.finished_at).toLocaleString("pt-BR")}`}</p>}
-                {c.items24h > 0 && <p className="text-xs text-muted">{c.items24h.toLocaleString("pt-BR")} itens coletados nas últimas 24 h</p>}
-                {!c.configured && c.requires.length > 0 && <p className="text-xs"><span className="text-faint">Variáveis: </span><code className="text-mid">{c.requires.join(", ")}</code></p>}
+                <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                  <dt className="text-faint">Anúncios ativos</dt><dd className="num text-right">{c.listings.toLocaleString("pt-BR")}</dd>
+                  <dt className="text-faint">Usados/seminovos/recond.</dt><dd className="num text-right">{c.usedListings.toLocaleString("pt-BR")}</dd>
+                  <dt className="text-faint">Com envio confirmado</dt><dd className="num text-right">{c.shippingConfirmed.toLocaleString("pt-BR")}</dd>
+                  <dt className="text-faint">Última atualização</dt><dd className="text-right">{c.lastUpdate ? new Date(c.lastUpdate).toLocaleString("pt-BR") : "nunca"}</dd>
+                  <dt className="text-faint">Credenciais</dt><dd className="text-right">{c.requires.length ? (c.configured ? "configuradas" : "necessárias") : "não precisa"}</dd>
+                </dl>
+                {c.lastError && <p className="text-xs text-bad">Último erro ({new Date(c.lastError.at).toLocaleString("pt-BR")}): {c.lastError.message}</p>}
+                {!c.configured && c.requires.length > 0 && <p className="text-xs"><span className="text-faint">Requer: </span><code className="text-mid">{c.requires.join(", ")}</code></p>}
+                {c.evidence && <p className="text-[11px] text-faint">Verificação: {c.evidence}</p>}
                 <a href={c.docsUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-accent">documentação →</a>
               </div>
             );

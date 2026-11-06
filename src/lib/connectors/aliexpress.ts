@@ -80,6 +80,9 @@ export const aliexpress: Connector = {
         sellerType: "profissional" as const,
         condition: classifyCondition(it.product_title, null, null, { storeSellsNewByDefault: true }),
         taxesIncluded: false,
+        shipAvailable: true,
+        shipScope: "internacional" as const,
+        protection: "Proteção ao comprador AliExpress",
         delivery: days ? { minDays: days, maxDays: days, source: "api-aliexpress" } : null,
         categoryHint: p.category,
       }];

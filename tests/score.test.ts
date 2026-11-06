@@ -86,10 +86,10 @@ describe("garimpo", () => {
   it("preço médio vem de comparáveis e é ajustado pelo estado", () => {
     const novo = estimateMarket({ id: 1, category: "pc", x: 102, kit: false, cpu: 100, cond: "novo", total: 3000, sample, curve: REFERENCE.pc, kitExtra: 0 });
     expect(novo.comparables).toBe(8);
-    expect(novo.price).toBe(4175);
-    expect(novo.discount).toBeCloseTo(1 - 3000 / 4175, 2);
+    expect(novo.price).toBe(4125); // mediana sem os 25% mais caros
+    expect(novo.discount).toBeCloseTo(1 - 3000 / 4125, 2);
     const usado = estimateMarket({ id: 1, category: "pc", x: 102, kit: false, cpu: 100, cond: "usado", total: 3000, sample, curve: REFERENCE.pc, kitExtra: 0 });
-    expect(usado.price).toBe(Math.round(4175 * 0.68));
+    expect(usado.price).toBe(Math.round(4125 * 0.68));
     expect(usado.discount!).toBeLessThan(novo.discount!);
   });
   it("não compara processadores de classes diferentes", () => {

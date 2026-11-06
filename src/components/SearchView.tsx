@@ -8,23 +8,25 @@ import { useLocation } from "./Providers";
 
 interface Facets { conditions: { value: string; count: number }[]; ufs: { value: string; count: number }[]; stores: { value: string; count: number }[]; brands: { value: string; count: number }[]; cpus: { value: string; count: number }[]; gpus: { value: string; count: number }[]; resolutions: { value: string; count: number }[] }
 interface SourceRun { source: string; name: string; status: string; items: number; error?: string }
-interface Resp { total: number; page: number; pageSize: number; results: AnalyzedOffer[]; combos?: ComboResult[]; kitInsight?: string | null; facets: Facets; sources: SourceRun[]; market: { pc: { source: string; n: number }; monitor: { source: string; n: number } }; location: { uf: string; city: string } | null; error?: string }
+interface Resp { total: number; page: number; pageSize: number; results: AnalyzedOffer[]; combos?: ComboResult[]; kitInsight?: string | null; tiers?: { id: string; label: string; count: number }[]; needsCep?: boolean; facets: Facets; sources: SourceRun[]; market: { pc: { source: string; n: number }; monitor: { source: string; n: number } }; location: { uf: string; city: string } | null; error?: string }
 
 const TITLES: Record<SearchMode, { title: string; sub: string; placeholder: string }> = {
   pc: { title: "PC Gamer", sub: "Computadores completos, prontos para uso.", placeholder: "Ex.: RTX 4060, Ryzen 5 5600, 32GB…" },
   "pc-monitor": { title: "PC Gamer + Monitor", sub: "Kits e combinações compradas separadamente, com custo total.", placeholder: "Ex.: RTX 5060, i5 12400F…" },
   monitor: { title: "Monitor", sub: "Monitores gamer e convencionais.", placeholder: "Ex.: 27 QHD 180Hz IPS…" },
+  kit: { title: "Kits de hardware", sub: "Processador + placa-mãe (± memória), novos e usados.", placeholder: "Ex.: Ryzen 5 5600, B550, 16GB…" },
+  "garimpo-entrega": { title: "Garimpo Extremo com entrega", sub: "PCs até R$ 500, R$ 700 e R$ 1.000, monitores até R$ 200 e kits muito baratos, só com envio confirmado para você. Custo total = produto + frete + taxas conhecidas.", placeholder: "Ex.: i5, GTX, 24…" },
 };
 
 const STORE_SLUG: Record<string, string> = { "KaBuM!": "kabum", "Mercado Livre": "mercadolivre", "Amazon Brasil": "amazon-br", Shopee: "shopee", AliExpress: "aliexpress" };
 const slugOf = (name: string) => STORE_SLUG[name] ?? name.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
-const FILTER_KEYS = ["garimpo", "cond", "uf", "seller", "pickup", "q", "minPrice", "maxPrice", "cpu", "gpu", "minRam", "minStorage", "brand", "stores", "freeShipping", "origin", "maxDays", "resolution", "minRefresh", "minScore", "kit", "unconfirmed", "sort", "page"] as const;
+const FILTER_KEYS = ["entrega", "tier", "garimpo", "cond", "uf", "seller", "pickup", "q", "minPrice", "maxPrice", "cpu", "gpu", "minRam", "minStorage", "brand", "stores", "freeShipping", "origin", "maxDays", "resolution", "minRefresh", "minScore", "kit", "unconfirmed", "sort", "page"] as const;
 type FilterKey = (typeof FILTER_KEYS)[number];
 
 export function SearchView() {
   const { modo } = useParams<{ modo: string }>();
-  const mode: SearchMode = modo === "monitor" || modo === "pc-monitor" ? modo : "pc";
+  const mode: SearchMode = modo === "monitor" || modo === "pc-monitor" || modo === "kit" || modo === "garimpo-entrega" ? modo : "pc";
   const sp = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -89,7 +91,17 @@ export function SearchView() {
         <SearchBox initial={filters.q ?? ""} placeholder={t.placeholder} onSubmit={(q) => setFilter({ q })} />
       </div>
 
-      {mode !== "pc-monitor" && (
+      {mode === "garimpo-entrega" && (
+        <div className="mb-4 space-y-3">
+          {(data?.needsCep ?? !location) && <div className="card p-4 text-sm border-mid/40 text-mid">Informe seu CEP no topo: sem ele não dá para confirmar anúncios com envio só local.</div>}
+          <div className="flex flex-wrap gap-2">
+            <TierChip active={!filters.tier} label="Todas as faixas" count={data?.tiers?.reduce((n, t) => n + t.count, 0)} onClick={() => setFilter({ tier: null })} />
+            {data?.tiers?.map((t) => <TierChip key={t.id} active={filters.tier === t.id} label={t.label} count={t.count} onClick={() => setFilter({ tier: t.id })} />)}
+          </div>
+          <p className="text-xs text-muted">Só entram anúncios com <b>envio confirmado</b> pela fonte, disponíveis e sem alto risco. Preço baixo não significa anúncio confiável: confira as notas e o risco de cada um e pague sempre pela plataforma.</p>
+        </div>
+      )}
+      {mode !== "pc-monitor" && mode !== "garimpo-entrega" && (
         <button type="button" onClick={() => setFilter({ garimpo: filters.garimpo ? null : "1", sort: filters.garimpo ? null : "discount" })}
           className={`w-full mb-4 text-left rounded-xl border p-4 transition-colors ${filters.garimpo ? "border-accent bg-accent/10" : "border-line hover:border-accent/50"}`}>
           <span className="font-bold tracking-wide text-accent">GARIMPO EXTREMO {filters.garimpo ? "· ativo" : ""}</span>
@@ -280,6 +292,17 @@ function Filters({ mode, f, facets, set }: { mode: SearchMode; f: Partial<Record
       {isMon && mode === "pc-monitor" && <p className="text-xs text-faint">Combinações usam os melhores monitores disponíveis para cada PC.</p>}
       <Group label="Entrega">
         <div className="space-y-2">
+          {mode !== "garimpo-entrega" && (
+            <div className="space-y-1">
+              {([["", "Qualquer modalidade"], ["entrega", "Somente com entrega disponível"], ["ambos", "Entrega ou retirada presencial"], ["retirada", "Somente retirada presencial"]] as const).map(([v, l]) => (
+                <label key={v} className="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="entrega" className="accent-[var(--color-accent)]" checked={(f.entrega ?? "") === v} onChange={() => set({ entrega: v || null })} />
+                  <span>{l}</span>
+                </label>
+              ))}
+              <p className="text-[11px] text-faint">“Somente entrega” exclui anúncios sem envio confirmado para o seu CEP.</p>
+            </div>
+          )}
           <Check label="Somente frete grátis" checked={!!f.freeShipping} onChange={(v) => set({ freeShipping: v ? "1" : null })} />
           <Check label="Aceita retirada presencial" checked={!!f.pickup} onChange={(v) => set({ pickup: v ? "1" : null })} />
           <Seg options={[["", "Todas"], ["BR", "Nacional"], ["INTL", "Internacional"]]} value={f.origin ?? ""} onChange={(v) => set({ origin: v })} />
@@ -297,6 +320,14 @@ function Filters({ mode, f, facets, set }: { mode: SearchMode; f: Partial<Record
 }
 
 const CONDITION_LABELS: Record<string, string> = { novo: "Novo", seminovo: "Seminovo", usado: "Usado", recondicionado: "Recondicionado", mostruario: "Mostruário", "nao-informado": "Não informado" };
+
+function TierChip({ active, label, count, onClick }: { active: boolean; label: string; count?: number; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} className={`px-3 py-1.5 rounded-lg border text-sm transition-colors ${active ? "border-accent text-accent bg-accent/10" : "border-line text-muted hover:text-fg"}`}>
+      {label}{count != null && <span className="num text-faint"> · {count}</span>}
+    </button>
+  );
+}
 
 function Group({ label, children }: { label: string; children: React.ReactNode }) {
   return (
