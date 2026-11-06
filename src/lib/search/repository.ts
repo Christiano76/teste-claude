@@ -57,9 +57,9 @@ export async function upsertOffers(items: { raw: RawOffer; specs: ParsedSpecs; k
            product_rating, product_rating_count, warranty_text, free_shipping, shipping_cost, delivery_min, delivery_max, delivery_source,
            origin, taxes_included, condition, brand, seller_location, specs, specs_text, canonical_key,
            cpu_model, cpu_index, gpu_model, gpu_index, ram_gb, storage_gb, includes_monitor, res_label, refresh_hz, size_in, panel,
-           last_seen_at, last_checked_at, active)
+           seller_type, pickup, last_seen_at, last_checked_at, active)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,
-           $36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46, now(), now(), true)
+           $36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48, now(), now(), true)
          ON CONFLICT (source, external_id) DO UPDATE SET
            store_slug=EXCLUDED.store_slug, store_name=EXCLUDED.store_name, seller_name=EXCLUDED.seller_name, title=EXCLUDED.title,
            title_norm=EXCLUDED.title_norm, url=EXCLUDED.url, image_url=COALESCE(EXCLUDED.image_url, offers.image_url),
@@ -81,7 +81,7 @@ export async function upsertOffers(items: { raw: RawOffer; specs: ParsedSpecs; k
            gpu_index=CASE WHEN offers.details_fetched_at IS NOT NULL AND EXCLUDED.specs_text IS NULL THEN offers.gpu_index ELSE EXCLUDED.gpu_index END,
            ram_gb=COALESCE(EXCLUDED.ram_gb, offers.ram_gb), storage_gb=COALESCE(EXCLUDED.storage_gb, offers.storage_gb),
            includes_monitor=EXCLUDED.includes_monitor, res_label=EXCLUDED.res_label, refresh_hz=EXCLUDED.refresh_hz,
-           size_in=EXCLUDED.size_in, panel=EXCLUDED.panel, last_seen_at=now(), last_checked_at=now(), active=true
+           size_in=EXCLUDED.size_in, panel=EXCLUDED.panel, seller_type=EXCLUDED.seller_type, pickup=EXCLUDED.pickup, last_seen_at=now(), last_checked_at=now(), active=true
          RETURNING id`,
         [
           r.source, r.externalId, slug, r.storeName, r.sellerName, r.title, normalize(r.title), r.url, r.imageUrl, category,
@@ -91,6 +91,7 @@ export async function upsertOffers(items: { raw: RawOffer; specs: ParsedSpecs; k
           JSON.stringify(specs), r.specsText, key,
           pc?.cpu?.model ?? null, pc?.cpu?.index ?? null, pc?.gpu?.model ?? null, pc?.gpu?.index ?? null, pc?.ramGb ?? null, storageGb,
           pc?.includesMonitor ?? null, m?.resolutionLabel ?? null, m?.refreshHz ?? null, m?.sizeIn ?? null, m?.panel ?? null,
+          r.sellerType, r.pickup,
         ],
       );
       const id = Number(res.rows[0].id);
@@ -117,7 +118,7 @@ interface OfferRow {
   warranty_text: string | null; free_shipping: boolean | null; shipping_cost: string | null; delivery_min: number | null;
   delivery_max: number | null; delivery_source: string | null; origin: "BR" | "INTL" | null; taxes_included: boolean | null;
   condition: Offer["condition"]; brand: string | null; seller_location: string | null; specs: ParsedSpecs; specs_text: string | null;
-  canonical_key: string; first_seen_at: Date; last_seen_at: Date; last_checked_at: Date;
+  canonical_key: string; seller_type: Offer["sellerType"]; pickup: boolean | null; first_seen_at: Date; last_seen_at: Date; last_checked_at: Date;
 }
 
 const num = (v: string | null) => (v == null ? null : Number(v));
@@ -132,7 +133,7 @@ export function rowToOffer(r: OfferRow): Offer {
     shippingCost: num(r.shipping_cost),
     delivery: r.delivery_max != null ? { minDays: r.delivery_min ?? r.delivery_max, maxDays: r.delivery_max, source: r.delivery_source ?? "fonte" } : null,
     origin: r.origin, taxesIncluded: r.taxes_included, condition: r.condition, brand: r.brand, categoryHint: r.category,
-    specsText: r.specs_text, sellerLocation: r.seller_location, category: r.category, specs: r.specs, canonicalKey: r.canonical_key,
+    specsText: r.specs_text, sellerLocation: r.seller_location, sellerType: r.seller_type, pickup: r.pickup, category: r.category, specs: r.specs, canonicalKey: r.canonical_key,
     firstSeenAt: r.first_seen_at.toISOString(), lastSeenAt: r.last_seen_at.toISOString(), lastCheckedAt: r.last_checked_at.toISOString(),
   };
 }
@@ -155,6 +156,10 @@ export interface OfferFilters {
   minRefresh?: number;
   includeUnconfirmed?: boolean;
   includesMonitor?: boolean;
+  conditions?: string[];
+  ufs?: string[];
+  sellerTypes?: string[];
+  pickup?: boolean;
   limit?: number;
 }
 
@@ -185,6 +190,10 @@ export async function findOffers(f: OfferFilters): Promise<Offer[]> {
   if (f.maxDeliveryDays) add("o.delivery_max <= ?", f.maxDeliveryDays);
   if (f.resolution) add("o.res_label = ?", f.resolution);
   if (f.minRefresh) add("o.refresh_hz >= ?", f.minRefresh);
+  if (f.conditions?.length) add("COALESCE(o.condition,'nao-informado') = ANY(?)", f.conditions);
+  if (f.ufs?.length) add("upper(o.seller_location) = ANY(?)", f.ufs.map((u) => u.toUpperCase()));
+  if (f.sellerTypes?.length) add("o.seller_type = ANY(?)", f.sellerTypes);
+  if (f.pickup) where.push("o.pickup IS TRUE");
   if (f.includesMonitor != null) add("COALESCE(o.includes_monitor,false) = ?", f.includesMonitor);
   p.push(f.limit ?? 800);
   const rows = await query<OfferRow>(`SELECT o.* FROM offers o WHERE ${where.join(" AND ")} ORDER BY o.price ASC LIMIT $${p.length}`, p);

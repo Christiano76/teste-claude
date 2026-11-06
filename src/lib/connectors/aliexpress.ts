@@ -4,6 +4,7 @@
  */
 import { createHmac } from "crypto";
 import { config } from "../config";
+import { classifyCondition } from "../market/condition";
 import type { RawOffer } from "../types";
 import { fetchJson } from "../util/http";
 import { type Connector, defaultQuery, emptyOffer, type SearchPage, type SearchParams } from "./types";
@@ -76,6 +77,8 @@ export const aliexpress: Connector = {
         isMarketplace: true,
         sellerRating: it.evaluate_rate ? (parseFloat(it.evaluate_rate) / 100) * 5 : null,
         origin: "INTL" as const,
+        sellerType: "profissional" as const,
+        condition: classifyCondition(it.product_title, null, null, { storeSellsNewByDefault: true }),
         taxesIncluded: false,
         delivery: days ? { minDays: days, maxDays: days, source: "api-aliexpress" } : null,
         categoryHint: p.category,

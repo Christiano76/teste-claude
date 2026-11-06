@@ -6,7 +6,7 @@ import { ComboCard } from "./ComboCard";
 import { CardSkeleton, OfferCard } from "./OfferCard";
 import { useLocation } from "./Providers";
 
-interface Facets { stores: { value: string; count: number }[]; brands: { value: string; count: number }[]; cpus: { value: string; count: number }[]; gpus: { value: string; count: number }[]; resolutions: { value: string; count: number }[] }
+interface Facets { conditions: { value: string; count: number }[]; ufs: { value: string; count: number }[]; stores: { value: string; count: number }[]; brands: { value: string; count: number }[]; cpus: { value: string; count: number }[]; gpus: { value: string; count: number }[]; resolutions: { value: string; count: number }[] }
 interface SourceRun { source: string; name: string; status: string; items: number; error?: string }
 interface Resp { total: number; page: number; pageSize: number; results: AnalyzedOffer[]; combos?: ComboResult[]; kitInsight?: string | null; facets: Facets; sources: SourceRun[]; market: { pc: { source: string; n: number }; monitor: { source: string; n: number } }; location: { uf: string; city: string } | null; error?: string }
 
@@ -19,7 +19,7 @@ const TITLES: Record<SearchMode, { title: string; sub: string; placeholder: stri
 const STORE_SLUG: Record<string, string> = { "KaBuM!": "kabum", "Mercado Livre": "mercadolivre", "Amazon Brasil": "amazon-br", Shopee: "shopee", AliExpress: "aliexpress" };
 const slugOf = (name: string) => STORE_SLUG[name] ?? name.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
-const FILTER_KEYS = ["q", "minPrice", "maxPrice", "cpu", "gpu", "minRam", "minStorage", "brand", "stores", "freeShipping", "origin", "maxDays", "resolution", "minRefresh", "minScore", "kit", "unconfirmed", "sort", "page"] as const;
+const FILTER_KEYS = ["garimpo", "cond", "uf", "seller", "pickup", "q", "minPrice", "maxPrice", "cpu", "gpu", "minRam", "minStorage", "brand", "stores", "freeShipping", "origin", "maxDays", "resolution", "minRefresh", "minScore", "kit", "unconfirmed", "sort", "page"] as const;
 type FilterKey = (typeof FILTER_KEYS)[number];
 
 export function SearchView() {
@@ -89,6 +89,13 @@ export function SearchView() {
         <SearchBox initial={filters.q ?? ""} placeholder={t.placeholder} onSubmit={(q) => setFilter({ q })} />
       </div>
 
+      {mode !== "pc-monitor" && (
+        <button type="button" onClick={() => setFilter({ garimpo: filters.garimpo ? null : "1", sort: filters.garimpo ? null : "discount" })}
+          className={`w-full mb-4 text-left rounded-xl border p-4 transition-colors ${filters.garimpo ? "border-accent bg-accent/10" : "border-line hover:border-accent/50"}`}>
+          <span className="font-bold tracking-wide text-accent">GARIMPO EXTREMO {filters.garimpo ? "· ativo" : ""}</span>
+          <span className="block text-xs text-muted mt-1">Só anúncios pelo menos 20% abaixo da média de anúncios comparáveis no mesmo estado (novos, usados, seminovos, recondicionados), com dados suficientes e sem alto risco. Máquinas obsoletas ficam de fora.</span>
+        </button>
+      )}
       <SourcesStrip data={data} loading={loading} onRefresh={() => setRefreshTick((x) => x + 1)} />
 
       <div className="flex gap-6 mt-5">
@@ -110,6 +117,8 @@ export function SearchView() {
                 <option value="price">Menor custo final</option>
                 <option value="performance">{mode === "monitor" ? "Melhor qualidade" : "Maior desempenho"}</option>
                 <option value="delivery">Entrega mais rápida</option>
+                <option value="discount">Maior desconto real</option>
+                <option value="value">Melhor custo-benefício</option>
               </select>
             )}
           </div>
@@ -188,6 +197,30 @@ function Filters({ mode, f, facets, set }: { mode: SearchMode; f: Partial<Record
           <NumInput placeholder="máx." value={f.maxPrice} onCommit={(v) => set({ maxPrice: v })} />
         </div>
       </Group>
+      <Group label="Estado de conservação">
+        <div className="space-y-1.5">
+          {(["novo", "seminovo", "usado", "recondicionado", "mostruario", "nao-informado"] as const).map((c) => {
+            const sel = new Set((f.cond ?? "").split(",").filter(Boolean));
+            const n = facets?.conditions?.find((x) => x.value === c)?.count;
+            return (
+              <label key={c} className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" className="accent-[var(--color-accent)]" checked={sel.has(c)} onChange={(e) => { if (e.target.checked) sel.add(c); else sel.delete(c); set({ cond: [...sel].join(",") || null }); }} />
+                <span className="flex-1">{CONDITION_LABELS[c]}</span><span className="text-faint num">{n ?? ""}</span>
+              </label>
+            );
+          })}
+          <p className="text-[11px] text-faint">Nenhum marcado = todos os estados.</p>
+        </div>
+      </Group>
+      <Group label="Vendedor">
+        <Seg options={[["", "Todos"], ["loja,profissional", "Profissional"], ["pessoa-fisica", "Pessoa física"]]} value={f.seller ?? ""} onChange={(v) => set({ seller: v })} />
+      </Group>
+      <Group label="Localização do vendedor (UF)">
+        <select className="input" value={f.uf ?? ""} onChange={(e) => set({ uf: e.target.value || null })}>
+          <option value="">Qualquer</option>
+          {facets?.ufs?.map((u) => <option key={u.value} value={u.value}>{u.value} ({u.count})</option>)}
+        </select>
+      </Group>
       <Group label="Nota mínima">
         <Seg options={[["", "Todas"], ["60", "60+"], ["75", "75+"], ["90", "90+"]]} value={f.minScore ?? ""} onChange={(v) => set({ minScore: v })} />
       </Group>
@@ -248,6 +281,7 @@ function Filters({ mode, f, facets, set }: { mode: SearchMode; f: Partial<Record
       <Group label="Entrega">
         <div className="space-y-2">
           <Check label="Somente frete grátis" checked={!!f.freeShipping} onChange={(v) => set({ freeShipping: v ? "1" : null })} />
+          <Check label="Aceita retirada presencial" checked={!!f.pickup} onChange={(v) => set({ pickup: v ? "1" : null })} />
           <Seg options={[["", "Todas"], ["BR", "Nacional"], ["INTL", "Internacional"]]} value={f.origin ?? ""} onChange={(v) => set({ origin: v })} />
           <select className="input" value={f.maxDays ?? ""} onChange={(e) => set({ maxDays: e.target.value || null })} aria-label="Prazo máximo">
             <option value="">Qualquer prazo</option>
@@ -261,6 +295,8 @@ function Filters({ mode, f, facets, set }: { mode: SearchMode; f: Partial<Record
     </div>
   );
 }
+
+const CONDITION_LABELS: Record<string, string> = { novo: "Novo", seminovo: "Seminovo", usado: "Usado", recondicionado: "Recondicionado", mostruario: "Mostruário", "nao-informado": "Não informado" };
 
 function Group({ label, children }: { label: string; children: React.ReactNode }) {
   return (

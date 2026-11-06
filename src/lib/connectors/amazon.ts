@@ -6,6 +6,7 @@
  */
 import { createHash, createHmac } from "crypto";
 import { config } from "../config";
+import { classifyCondition } from "../market/condition";
 import type { RawOffer } from "../types";
 import { HttpError, fetchWithPolicy } from "../util/http";
 import { type Connector, defaultQuery, emptyOffer, type SearchPage, type SearchParams } from "./types";
@@ -116,7 +117,8 @@ export const amazon: Connector = {
         freeShipping: l.DeliveryInfo?.IsFreeShippingEligible ?? null,
         origin: "BR",
         taxesIncluded: true,
-        condition: l.Condition?.Value === "New" ? "new" : l.Condition?.Value === "Used" ? "used" : null,
+        condition: classifyCondition(it.ItemInfo?.Title?.DisplayValue ?? "", null, l.Condition?.Value ?? null),
+        sellerType: merchant && /amazon/i.test(merchant) ? "loja" : "profissional",
         brand: it.ItemInfo?.ByLineInfo?.Brand?.DisplayValue ?? null,
         categoryHint: p.category,
         specsText: it.ItemInfo?.Features?.DisplayValues?.join("\n") ?? null,

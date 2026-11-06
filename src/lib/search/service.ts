@@ -8,11 +8,35 @@ import { usdBrl } from "../pricing/fx";
 import { fitCurve, REFERENCE, type MarketCurve } from "../scoring/market";
 import type { StoreRow } from "../scoring/reputation";
 import { analyzeOffer, verdictOf, type ScoreContext } from "../scoring/score";
-import type { AnalyzedOffer, Category, ComboResult, Offer, SearchMode, UserLocation } from "../types";
+import type { SamplePoint } from "../market/estimate";
+import type { AnalyzedOffer, Category, ComboResult, Condition, Offer, ParsedSpecs, SearchMode, UserLocation } from "../types";
 import { collect, type SourceRun } from "./collect";
 import { findOffers, marketPoints, type OfferFilters } from "./repository";
 
 const curveCache = new Map<Category, { at: number; curve: MarketCurve }>();
+
+const sampleCache: { at: number; v: { pc: SamplePoint[]; monitor: SamplePoint[] } } | { at: 0; v: null } = { at: 0, v: null };
+
+/** Amostra de anúncios ativos usada para o preço médio por comparáveis (cache de 10 min). */
+export async function marketSample(): Promise<{ pc: SamplePoint[]; monitor: SamplePoint[] }> {
+  if (sampleCache.v && Date.now() - sampleCache.at < 10 * 60_000) return sampleCache.v;
+  const rows = await query<{ id: string; category: Category; price: string; condition: Condition | null; specs: ParsedSpecs }>(
+    `SELECT id, category, price, condition, specs FROM offers WHERE active AND available IS TRUE AND origin = 'BR' AND last_seen_at > now() - interval '7 days'`,
+  );
+  const v = { pc: [] as SamplePoint[], monitor: [] as SamplePoint[] };
+  for (const r of rows) {
+    const cond = (r.condition ?? "nao-informado") as Condition;
+    if (r.category === "pc" && r.specs.pc) {
+      const x = pcPerformance(r.specs.pc).gamingIndex;
+      if (x != null && r.specs.pc.cpu?.index != null) v.pc.push({ id: Number(r.id), x, price: Number(r.price), cond, kit: r.specs.pc.includesMonitor, cpu: r.specs.pc.cpu.index });
+    } else if (r.category === "monitor" && r.specs.monitor?.resolutionLabel) {
+      const m = r.specs.monitor;
+      v.monitor.push({ id: Number(r.id), x: monitorQuality(m), price: Number(r.price), cond, res: m.resolutionLabel, hz: m.refreshHz, panel: m.panel });
+    }
+  }
+  Object.assign(sampleCache, { at: Date.now(), v });
+  return v;
+}
 
 export async function marketCurve(category: Category): Promise<MarketCurve> {
   const hit = curveCache.get(category);
@@ -70,9 +94,16 @@ async function shippingQuotes(offers: Offer[], cep: string | null, liveLimit = 1
 
 export async function analyzeOffers(offers: Offer[], location: UserLocation | null): Promise<AnalyzedOffer[]> {
   if (!offers.length) return [];
-  const [stores, fx, pcCurve, monitorCurve, histories] = await Promise.all([
-    storesMap(), usdBrl(), marketCurve("pc"), marketCurve("monitor"), getHistories(offers.map((o) => o.id)),
+  const [stores, fx, pcCurve, monitorCurve, histories, sample] = await Promise.all([
+    storesMap(), usdBrl(), marketCurve("pc"), marketCurve("monitor"), getHistories(offers.map((o) => o.id)), marketSample(),
   ]);
+  // fotos repetidas entre vendedores diferentes
+  const imgSellers = new Map<string, Set<string>>();
+  for (const o of offers) if (o.imageUrl) {
+    const k = o.imageUrl.replace(/_\d+\.(jpg|png|webp)$/i, "");
+    if (!imgSellers.has(k)) imgSellers.set(k, new Set());
+    imgSellers.get(k)!.add(o.sellerName ?? o.storeName);
+  }
   // ordem preliminar por preço para limitar cotações ao vivo às ofertas mais relevantes
   const quotes = await shippingQuotes(offers, location?.cep ?? null);
   return offers.map((o) => {
@@ -84,6 +115,8 @@ export async function analyzeOffers(offers: Offer[], location: UserLocation | nu
       pcCurve,
       monitorCurve,
       priceInsight: priceInsight(histories.get(o.id) ?? [], o.price, o.listPrice),
+      sample,
+      imageSellers: o.imageUrl ? imgSellers.get(o.imageUrl.replace(/_\d+\.(jpg|png|webp)$/i, ""))?.size ?? 0 : 0,
       shippingQuote: q ? { cost: q.cost == null ? null : Number(q.cost), minDays: q.min_days, maxDays: q.max_days, source: q.source } : null,
     };
     return { offer: o, analysis: analyzeOffer(o, ctx), alsoAt: [] };
@@ -118,7 +151,9 @@ export function dedupe(items: AnalyzedOffer[]): AnalyzedOffer[] {
 export interface SearchRequest extends Omit<OfferFilters, "category"> {
   mode: SearchMode;
   cep?: string;
-  sort?: "score" | "price" | "performance" | "delivery";
+  sort?: "score" | "price" | "performance" | "delivery" | "discount" | "value";
+  /** GARIMPO EXTREMO: só anúncios bem abaixo do preço médio, sem risco alto e com dados suficientes. */
+  garimpo?: boolean;
   page?: number;
   pageSize?: number;
   refresh?: boolean;
@@ -131,6 +166,8 @@ export interface Facets {
   cpus: { value: string; count: number }[];
   gpus: { value: string; count: number }[];
   resolutions: { value: string; count: number }[];
+  conditions: { value: string; count: number }[];
+  ufs: { value: string; count: number }[];
 }
 
 export interface SearchResponse {
@@ -164,6 +201,8 @@ function sortItems(items: AnalyzedOffer[], sort: SearchRequest["sort"]) {
     if (sort === "price") return a.analysis.cost.total - b.analysis.cost.total;
     if (sort === "performance") return perf(b) - perf(a) || b.analysis.score - a.analysis.score;
     if (sort === "delivery") return days(a) - days(b) || b.analysis.score - a.analysis.score;
+    if (sort === "discount") return (b.analysis.market.discount ?? -9) - (a.analysis.market.discount ?? -9) || b.analysis.score - a.analysis.score;
+    if (sort === "value") return b.analysis.scores.custoBeneficio - a.analysis.scores.custoBeneficio || a.analysis.cost.total - b.analysis.cost.total;
     return b.analysis.score - a.analysis.score || a.analysis.cost.total - b.analysis.cost.total;
   });
 }
@@ -171,7 +210,18 @@ function sortItems(items: AnalyzedOffer[], sort: SearchRequest["sort"]) {
 async function searchCategory(category: Category, req: SearchRequest, location: UserLocation | null) {
   const offers = await findOffers({ ...req, category, text: req.text, includesMonitor: category === "pc" ? req.includesMonitor : undefined });
   const analyzed = dedupe(await analyzeOffers(offers, location));
-  return analyzed.filter((a) => (req.minScore == null || a.analysis.score >= req.minScore) && (req.maxDeliveryDays == null || (a.offer.delivery?.maxDays ?? 999) <= req.maxDeliveryDays));
+  return analyzed.filter((a) =>
+    (req.minScore == null || a.analysis.score >= req.minScore) &&
+    (req.maxDeliveryDays == null || (a.offer.delivery?.maxDays ?? 999) <= req.maxDeliveryDays) &&
+    (!req.garimpo || isGarimpo(a)));
+}
+
+/** Critério do GARIMPO EXTREMO. */
+export function isGarimpo(a: AnalyzedOffer): boolean {
+  const x = a.analysis;
+  // PC precisa ter desempenho real para jogos: preço baixo de máquina obsoleta não é garimpo
+  if (a.offer.category === "pc" && (x.performance?.gamingIndex ?? 0) < 25) return false;
+  return (x.market.discount ?? 0) >= 0.2 && x.market.comparables >= (a.offer.category === "pc" ? 5 : 4) && x.risk.level !== "alto" && x.risk.level !== "insuficiente" && x.scores.custoBeneficio >= 45;
 }
 
 export async function search(req: SearchRequest): Promise<SearchResponse> {
@@ -198,7 +248,7 @@ export async function search(req: SearchRequest): Promise<SearchResponse> {
     results = [];
   } else {
     results = await searchCategory(categories[0], req, location);
-    sortItems(results, req.sort);
+    sortItems(results, req.sort ?? (req.garimpo ? "discount" : "score"));
   }
 
   const all = results.length ? results : [];
@@ -208,6 +258,8 @@ export async function search(req: SearchRequest): Promise<SearchResponse> {
     cpus: facetCount(all, (a) => a.offer.specs.pc?.cpu?.model.replace(/\s*\(.*\)$/, "")),
     gpus: facetCount(all, (a) => a.offer.specs.pc?.gpu?.model.replace(/\s*\(.*\)$/, "")),
     resolutions: facetCount(all, (a) => a.offer.specs.monitor?.resolutionLabel),
+    conditions: facetCount(all, (a) => a.analysis.condition),
+    ufs: facetCount(all, (a) => a.offer.sellerLocation?.toUpperCase()),
   };
   const [pcC, monC] = await Promise.all([marketCurve("pc"), marketCurve("monitor")]);
   return {
@@ -282,4 +334,27 @@ export function buildCombos(pcs: AnalyzedOffer[], monitors: AnalyzedOffer[], max
     kitInsight = "Nenhum kit PC + monitor encontrado nas fontes ativas — exibindo combinações compradas separadamente.";
   }
   return { combos: filtered, kitInsight };
+}
+
+
+/** RADAR: anúncios novos, quedas de preço e anúncios removidos/vendidos. */
+export async function radar(hours = 48) {
+  const fresh = await query<{ id: string }>(
+    `SELECT id FROM offers WHERE active AND available IS TRUE AND first_seen_at > now() - ($1 || ' hours')::interval
+       AND first_seen_at > (SELECT min(first_seen_at) + interval '1 hour' FROM offers) ORDER BY first_seen_at DESC LIMIT 200`, [String(hours)]);
+  const drops = await query<{ offer_id: string; prev: string; cur: string; at: Date }>(
+    `WITH s AS (SELECT offer_id, price, captured_at, lag(price) OVER (PARTITION BY offer_id ORDER BY captured_at) AS prev FROM price_snapshots)
+     SELECT s.offer_id, s.prev, s.price AS cur, s.captured_at AS at FROM s JOIN offers o ON o.id = s.offer_id
+     WHERE s.prev IS NOT NULL AND s.price < s.prev * 0.97 AND s.captured_at > now() - ($1 || ' hours')::interval AND o.active AND o.available IS TRUE
+     ORDER BY (s.prev - s.price) / s.prev DESC LIMIT 200`, [String(hours)]);
+  const removed = await query<{ id: string; title: string; price: string; store_name: string; last_seen_at: Date; available: boolean | null }>(
+    `SELECT id, title, price, store_name, last_seen_at, available FROM offers WHERE (NOT active OR available IS FALSE) AND last_seen_at > now() - interval '14 days' ORDER BY last_seen_at DESC LIMIT 100`);
+  const ids = [...new Set([...fresh.map((r) => Number(r.id)), ...drops.map((r) => Number(r.offer_id))])];
+  const { getOffersByIds } = await import("./repository");
+  const analyzed = new Map((await analyzeOffers(await getOffersByIds(ids), null)).map((a) => [a.offer.id, a]));
+  return {
+    newListings: fresh.map((r) => analyzed.get(Number(r.id))).filter(Boolean),
+    priceDrops: drops.flatMap((d) => { const a = analyzed.get(Number(d.offer_id)); return a ? [{ item: a, previous: Number(d.prev), current: Number(d.cur), at: d.at }] : []; }),
+    removed: removed.map((r) => ({ id: Number(r.id), title: r.title, price: Number(r.price), store: r.store_name, lastSeen: r.last_seen_at, soldOut: r.available === false })),
+  };
 }

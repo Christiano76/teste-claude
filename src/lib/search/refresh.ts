@@ -12,6 +12,14 @@ export const CRON_QUERIES: { category: "pc" | "monitor"; query: string }[] = [
   { category: "monitor", query: "" },
   { category: "monitor", query: "monitor 27" },
   { category: "monitor", query: "monitor 24" },
+  // garimpo: usados, seminovos, recondicionados e mostruário
+  { category: "pc", query: "pc usado" },
+  { category: "pc", query: "computador seminovo" },
+  { category: "pc", query: "pc recondicionado" },
+  { category: "pc", query: "workstation usado" },
+  { category: "monitor", query: "monitor recondicionado" },
+  { category: "monitor", query: "monitor seminovo" },
+  { category: "monitor", query: "monitor usado" },
 ];
 
 export interface RefreshReport {

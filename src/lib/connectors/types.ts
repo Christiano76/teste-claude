@@ -45,7 +45,7 @@ export interface Connector {
 export function defaultQuery(category: Category, q: string): string {
   const t = q.trim();
   if (category === "monitor") return t ? (/monitor/i.test(t) ? t : `monitor ${t}`) : "monitor gamer";
-  return t ? (/\b(pc|computador)\b/i.test(t) ? t : `pc gamer ${t}`) : "pc gamer";
+  return t ? (/\b(pc|computador|workstation|desktop)\b/i.test(t) ? t : `pc gamer ${t}`) : "pc gamer";
 }
 
 export function emptyOffer(partial: Pick<RawOffer, "source" | "externalId" | "title" | "url" | "price" | "storeName">): RawOffer {
@@ -53,7 +53,7 @@ export function emptyOffer(partial: Pick<RawOffer, "source" | "externalId" | "ti
     imageUrl: null, installmentPrice: null, listPrice: null, currency: "BRL", available: null, stockQty: null,
     sellerName: null, isMarketplace: null, sellerRating: null, sellerRatingCount: null, productRating: null,
     productRatingCount: null, warrantyText: null, freeShipping: null, shippingCost: null, delivery: null, origin: null,
-    taxesIncluded: null, condition: null, brand: null, categoryHint: null, specsText: null, sellerLocation: null,
+    taxesIncluded: null, condition: null, sellerType: null, pickup: null, brand: null, categoryHint: null, specsText: null, sellerLocation: null,
     ...partial,
   };
 }

@@ -8,6 +8,7 @@
  */
 import { readFile } from "fs/promises";
 import { config } from "../config";
+import { classifyCondition } from "../market/condition";
 import type { Category, RawOffer } from "../types";
 import { fetchWithPolicy } from "../util/http";
 import { normalize } from "../util/text";
@@ -70,7 +71,8 @@ function toOffer(r: FeedRecord, f: FeedConfig): RawOffer | null {
     available: av ? av === "in_stock" || av === "em_estoque" : null,
     brand: r.brand,
     specsText: r.description?.slice(0, 4000) ?? null,
-    condition: r.condition === "new" || r.condition === "novo" ? "new" : r.condition === "used" ? "used" : r.condition === "refurbished" ? "refurbished" : null,
+    condition: classifyCondition(r.title, r.description, r.condition, { storeSellsNewByDefault: true }),
+    sellerType: "loja",
     shippingCost: parsePrice(r.shipping_price) ?? (r.shipping_price && /^0([.,]0+)?\b/.test(r.shipping_price) ? 0 : null),
     freeShipping: r.shipping_price ? parsePrice(r.shipping_price) == null && /^0/.test(r.shipping_price) : null,
     origin: f.origin ?? "BR",

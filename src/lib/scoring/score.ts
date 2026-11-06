@@ -9,7 +9,9 @@
 import { findGpuByName } from "../hardware/gpus";
 import { monitorQuality, pcPerformance } from "../hardware/performance";
 import { estimateImportTaxes } from "../pricing/import-tax";
-import type { Analysis, CostBreakdown, Flag, Offer, PriceInsight, ScoreComponent, Verdict } from "../types";
+import { classifyCondition, CONDITION_LABEL } from "../market/condition";
+import { estimateMarket, type SamplePoint } from "../market/estimate";
+import type { Analysis, Condition, CostBreakdown, Flag, Offer, PriceInsight, RiskLevel, ScoreComponent, Verdict } from "../types";
 import { clamp } from "../util/text";
 import { expectedPrice, type MarketCurve } from "./market";
 import { type StoreRow, storeReputation, warrantyMonths } from "./reputation";
@@ -24,6 +26,10 @@ export interface ScoreContext {
   priceInsight: PriceInsight | null;
   /** Frete/prazo cotado para o CEP do usuário (sobrepõe os dados genéricos da oferta). */
   shippingQuote?: { cost: number | null; minDays: number | null; maxDays: number | null; source: string } | null;
+  /** Amostra de anúncios para preço médio por comparáveis. */
+  sample?: { pc: SamplePoint[]; monitor: SamplePoint[] };
+  /** Quantos vendedores diferentes usam a mesma foto. */
+  imageSellers?: number;
 }
 
 export function verdictOf(score: number): Verdict {
@@ -139,6 +145,7 @@ export function analyzeOffer(o: Offer, ctx: ScoreContext): Analysis {
   let expected: number | null = null;
   let performance: Analysis["performance"] = null;
   let mq: number | null = null;
+  let kitExtra = 0;
 
   if (o.category === "pc" && o.specs.pc) {
     const pc = o.specs.pc;
@@ -148,8 +155,9 @@ export function analyzeOffer(o: Offer, ctx: ScoreContext): Analysis {
     if (perf.gamingIndex != null) {
       expected = expectedPrice(ctx.pcCurve, perf.gamingIndex);
       // Kits com monitor/periféricos: o preço esperado inclui um acréscimo pelo que vem junto
-      if (pc.includesMonitor) expected += pc.monitor ? expectedPrice(ctx.monitorCurve, monitorQuality(pc.monitor)) * 0.8 : 450;
-      else if (pc.includesPeripherals) expected += 120;
+      if (pc.includesMonitor) kitExtra = pc.monitor ? expectedPrice(ctx.monitorCurve, monitorQuality(pc.monitor)) * 0.8 : 450;
+      else if (pc.includesPeripherals) kitExtra = 120;
+      expected += kitExtra;
       const v = valueScore(expected, cost.total);
       components.push({ key: "valor", label: "Custo-benefício", weight: 0, value: Math.round(v), detail: `Preço final R$ ${cost.total.toFixed(0)} vs. ~R$ ${expected.toFixed(0)} cobrado pelo mercado (${ctx.pcCurve.source === "dados-coletados" ? `curva de ${ctx.pcCurve.n} ofertas coletadas` : "curva de referência"}) por esse desempenho.` });
       components.push({ key: "desempenho", label: "Desempenho em jogos", weight: 0, value: Math.round(clamp((Math.log(Math.max(5, perf.gamingIndex)) - Math.log(5)) / (Math.log(250) - Math.log(5)) * 100)), detail: `${perf.tierLabel} (índice ${perf.gamingIndex}; RTX 4060 + Ryzen 5 5600 ≈ 100).` });
@@ -189,7 +197,7 @@ export function analyzeOffer(o: Offer, ctx: ScoreContext): Analysis {
     else if (pc.cpu?.generationAge === "old") { q -= 7; notes.push("processador de geração antiga"); }
     if (!pc.cpu || pc.cpu.index == null) { q -= 10; notes.push("modelo do processador não informado"); flags.push({ level: "warn", code: "cpu-unknown", message: "Modelo exato do processador não informado — peça essa informação ao vendedor." }); }
     if (pc.gpu?.integrated) { q -= 10; notes.push("sem placa de vídeo dedicada"); }
-    if (o.condition === "used" || o.condition === "refurbished") q -= 8;
+    if (o.condition && ["usado", "seminovo", "recondicionado"].includes(o.condition)) q -= 6;
     components.push({ key: "qualidade", label: "Qualidade das peças", weight: 0, value: Math.round(clamp(q)), detail: notes.length ? notes.join("; ") + "." : "Componentes sem ressalvas nos dados informados." });
 
     // Equilíbrio
@@ -253,7 +261,65 @@ export function analyzeOffer(o: Offer, ctx: ScoreContext): Analysis {
 
   caps = caps.filter((c) => c < score);
   if (caps.length) score = Math.min(...caps);
-  const final = Math.round(clamp(score));
+  const legacy = Math.round(clamp(score));
+
+  // ---------- três notas independentes ----------
+  const condition: Condition = o.condition ?? classifyCondition(o.title, o.specsText, null);
+  // 1) Custo-benefício: tudo menos a confiabilidade da loja
+  const cbWeights = { ...weights, loja: 0 };
+  let cb = weighted(components.map((c) => ({ ...c })), cbWeights);
+  const cbCaps = caps.filter((c) => c !== 39);
+  if (cbCaps.length) cb = Math.min(cb, ...cbCaps);
+  for (const c of components) c.weight = weights[c.key] ?? 0;
+
+  // 2) Desconto real contra o preço médio de comparáveis no mesmo estado
+  const x = o.category === "pc" ? performance?.gamingIndex ?? null : mq;
+  const sample = ctx.sample ? (o.category === "pc" ? ctx.sample.pc : ctx.sample.monitor) : [];
+  const market = estimateMarket({
+    id: o.id, category: o.category, x, kit: !!o.specs.pc?.includesMonitor, res: o.specs.monitor?.resolutionLabel, hz: o.specs.monitor?.refreshHz,
+    panel: o.specs.monitor?.panel, cpu: o.specs.pc?.cpu?.index ?? null, cond: condition, total: cost.total, sample, curve: o.category === "pc" ? ctx.pcCurve : ctx.monitorCurve, kitExtra,
+  });
+  let desconto = market.discount == null ? null : Math.round(clamp(35 + market.discount * 130));
+  // sem anúncios comparáveis, a estimativa vem só da curva: confiança baixa
+  if (desconto != null && market.comparables === 0) desconto = Math.min(desconto, 60);
+
+  // 3) Confiabilidade + classificação de risco
+  const reasons: string[] = [];
+  let conf = rep.score;
+  reasons.push(`Loja/vendedor: ${rep.label.toLowerCase()} (${rep.score}/100).`);
+  if (o.sellerType === "pessoa-fisica") { conf -= 8; reasons.push("Vendedor pessoa física: sem estrutura de loja para trocas e garantia."); }
+  if (o.sellerType === "profissional" && o.isMarketplace) reasons.push("Vendedor profissional (CNPJ) em marketplace.");
+  const missing = o.specs.missing.length;
+  const critical = o.specs.missing.filter((m) => /processador|placa de v[ií]deo|mem[oó]ria|armazenamento|resolu|frequ|tamanho/.test(m));
+  if (missing) {
+    conf -= Math.min(24, critical.length * 7 + (missing - critical.length) * 2);
+    reasons.push(`${critical.length ? "Faltam dados importantes" : "Faltam detalhes"} no anúncio: ${o.specs.missing.slice(0, 4).join(", ")}.`);
+  }
+  const dangers = flags.filter((f) => f.level === "danger");
+  const warns = flags.filter((f) => f.level === "warn");
+  conf -= Math.min(70, dangers.length * 35) + Math.min(18, warns.length * 5);
+  for (const f of [...dangers, ...warns].slice(0, 4)) reasons.push(f.message);
+  if (market.discount != null && market.discount > 0.55) { conf -= 20; reasons.push(`Preço ${Math.round(market.discount * 100)}% abaixo do mercado: descontos extremos exigem confirmar o produto e o vendedor.`); }
+  if ((ctx.imageSellers ?? 0) >= 3) { conf -= o.sellerType === "pessoa-fisica" ? 15 : 5; reasons.push(`A mesma foto aparece em anúncios de ${ctx.imageSellers} vendedores diferentes (imagem genérica ou copiada).`); }
+  if (condition !== "novo" && warrantyMonths(o.warrantyText).months == null) { conf -= 5; reasons.push("Item não novo sem garantia informada."); }
+  if (o.available !== true) { conf -= 10; reasons.push("Disponibilidade não confirmada."); }
+  conf = Math.round(clamp(conf));
+
+  let level: RiskLevel;
+  const insufficient = (o.category === "pc" && (performance?.gamingIndex == null || critical.length >= 2)) || (o.category === "monitor" && (!o.specs.monitor?.resolutionLabel || !o.specs.monitor?.refreshHz));
+  if (dangers.length || conf < 40) level = "alto";
+  else if (insufficient) level = "insuficiente";
+  else if (warns.length >= 1 || conf < 55) level = "atencao";
+  else level = "baixo";
+  if (level === "baixo") reasons.push("Nenhum sinal de risco encontrado nos dados disponíveis — isso não garante que o anúncio seja seguro.");
+
+  // Nota geral
+  let geral = 0.45 * cb + 0.25 * (desconto ?? 35) + 0.3 * conf;
+  if (level === "alto") geral = Math.min(geral, 35);
+  if (level === "insuficiente") geral = Math.min(geral, 55);
+  geral = Math.round(clamp(geral));
+  const final = geral;
+  void legacy;
   return {
     score: final,
     verdict: verdictOf(final),
@@ -265,5 +331,16 @@ export function analyzeOffer(o: Offer, ctx: ScoreContext): Analysis {
     storeReputation: rep,
     priceInsight: ctx.priceInsight,
     suspicious,
+    condition,
+    market,
+    risk: { level, reasons },
+    scores: { custoBeneficio: Math.round(clamp(cb)), desconto, confiabilidade: conf, geral },
+    scoreNotes: {
+      custoBeneficio: components.filter((c) => c.key !== "loja").sort((a, b) => b.weight - a.weight).slice(0, 3).map((c) => `${c.label}: ${c.value}`).join(" · "),
+      desconto: market.price == null ? market.basis : `${market.discount! >= 0 ? `${Math.round(market.discount! * 100)}% abaixo` : `${Math.round(-market.discount! * 100)}% acima`} do preço médio estimado (${market.basis}).`,
+      confiabilidade: reasons[0] ?? "",
+    },
   };
 }
+
+export { CONDITION_LABEL };

@@ -8,6 +8,8 @@ const NAV = [
   { href: "/buscar/pc", label: "PC Gamer" },
   { href: "/buscar/pc-monitor", label: "PC + Monitor" },
   { href: "/buscar/monitor", label: "Monitor" },
+  { href: "/buscar/pc?garimpo=1&sort=discount", label: "Garimpo" },
+  { href: "/radar", label: "Radar" },
   { href: "/favoritos", label: "Favoritos" },
   { href: "/alertas", label: "Alertas" },
   { href: "/fontes", label: "Fontes" },
@@ -25,7 +27,7 @@ export function Header() {
         </Link>
         <nav className="hidden lg:flex items-center gap-1 text-sm">
           {NAV.map((n) => (
-            <Link key={n.href} href={n.href} className={`px-3 py-1.5 rounded-lg transition-colors ${path?.startsWith(n.href) ? "bg-surface-2 text-fg" : "text-muted hover:text-fg"}`}>
+            <Link key={n.href} href={n.href} className={`px-3 py-1.5 rounded-lg transition-colors ${path?.startsWith(n.href.split("?")[0]) && !n.href.includes("garimpo") ? "bg-surface-2 text-fg" : "text-muted hover:text-fg"}`}>
               {n.label}
             </Link>
           ))}

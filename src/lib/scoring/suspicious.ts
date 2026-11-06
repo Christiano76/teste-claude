@@ -1,3 +1,4 @@
+import { CONDITION_LABEL } from "../market/condition";
 import type { Flag, Offer } from "../types";
 
 const BAD_WORDS: [RegExp, string][] = [
@@ -41,7 +42,16 @@ export function detectSuspicious({ offer, expectedPrice, totalCost }: SuspicionI
       flags.push({ level: "warn", code: "obsolete", message: `Plataforma antiga (${pc.cpu?.model ?? "DDR3"}) vendida como gamer — sem caminho de upgrade.` });
     }
   }
-  if (offer.condition === "used") flags.push({ level: "info", code: "used", message: "Produto usado." });
-  if (offer.condition === "refurbished") flags.push({ level: "info", code: "refurb", message: "Produto recondicionado/open box." });
+  if (offer.condition && offer.condition !== "novo") flags.push({ level: "info", code: "condition", message: `Estado: ${CONDITION_LABEL[offer.condition]}.` });
+  // pagamento fora da plataforma / contato direto
+  const txt = `${offer.title}\n${offer.specsText ?? ""}`;
+  if (/(pix|dep[oó]sito|transfer[eê]ncia)\s*(direto|antecipad)|chama no (zap|whats)|whats\s*app|fora da plataforma|s[oó] (no|pelo) pix|pagamento antecipado/i.test(txt)) {
+    flags.push({ level: "danger", code: "off-platform", message: "Anúncio sugere pagamento ou contato fora da plataforma — prática comum em golpes." });
+  }
+  // especificações inconsistentes: duas placas de vídeo diferentes citadas no título
+  const gpus = offer.title.match(/\b(rtx|gtx|rx)\s?-?\d{3,4}/gi);
+  if (gpus && new Set(gpus.map((g) => g.toLowerCase().replace(/[\s-]/g, ""))).size > 1 && !/ou|\/|op[cç][aã]o/i.test(offer.title)) {
+    flags.push({ level: "warn", code: "inconsistent", message: `Título cita placas de vídeo diferentes (${[...new Set(gpus)].join(", ")}) — especificação inconsistente.` });
+  }
   return flags;
 }

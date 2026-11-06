@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { AnalyzedOffer } from "@/lib/types";
-import { brl, deliveryText, scoreColor } from "./format";
+import { brl, CONDITION, deliveryText, RISK, scoreColor } from "./format";
 import { FavoriteButton } from "./FavoriteButton";
 import { PriceChart, type Point } from "./PriceChart";
 import { useLocation } from "./Providers";
@@ -65,6 +65,34 @@ export function OfferView() {
             </ul>
           )}
 
+          <Section title="Três notas independentes">
+            <div className="grid sm:grid-cols-3 gap-3">
+              {([["Custo-benefício", a.scores.custoBeneficio, a.scoreNotes.custoBeneficio], ["Desconto real", a.scores.desconto, a.scoreNotes.desconto], ["Confiabilidade", a.scores.confiabilidade, a.scoreNotes.confiabilidade]] as const).map(([l, v, n]) => (
+                <div key={l} className="bg-surface-2 rounded-lg p-3">
+                  <div className="text-xs text-faint">{l}</div>
+                  <div className="text-2xl font-bold num" style={{ color: v == null ? "var(--color-faint)" : scoreColor(v) }}>{v ?? "—"}</div>
+                  <p className="text-[11px] text-muted mt-1">{n}</p>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-muted mt-3">Nota geral = 45% custo-benefício + 25% desconto real + 30% confiabilidade, limitada a 35 em alto risco e a 55 quando faltam informações.</p>
+          </Section>
+
+          <Section title="Preço de mercado">
+            <table className="w-full text-sm"><tbody>
+              <Row k="Estado" v={CONDITION[a.condition]} />
+              <Row k="Preço médio estimado (neste estado)" v={a.market.price != null ? brl(a.market.price) : null} />
+              <Row k="Equivalente novo" v={a.market.newPrice != null ? brl(a.market.newPrice) : null} />
+              <Row k="Economia estimada" v={a.market.savings != null ? `${brl(a.market.savings)} (${Math.round((a.market.discount ?? 0) * 100)}%)` : null} />
+            </tbody></table>
+            <p className="text-xs text-muted mt-2">Base: {a.market.basis}.</p>
+          </Section>
+
+          <Section title={`Análise de risco: ${RISK[a.risk.level][0]}`}>
+            <ul className="text-sm space-y-1">{a.risk.reasons.map((r) => <li key={r} className="text-muted">• {r}</li>)}</ul>
+            <p className="text-[11px] text-faint mt-2">A classificação usa só os dados disponíveis na fonte. Nenhum anúncio é garantido como seguro: confira o vendedor e nunca pague fora da plataforma.</p>
+          </Section>
+
           <Section title="Como a nota foi calculada">
             <div className="space-y-3">
               {a.components.map((c) => (
@@ -85,6 +113,9 @@ export function OfferView() {
               {a.cost.icms != null && <Row k="ICMS (est.)" v={brl(a.cost.icms, 2)} />}
               <Row k="Total" v={<b className="num">{brl(a.cost.total, 2)}{!a.cost.totalIsComplete && <span className="text-faint font-normal"> + itens não verificados</span>}</b>} />
               <Row k="Entrega" v={deliveryText(o)} />
+              <Row k="Local do vendedor" v={o.sellerLocation} />
+              <Row k="Retirada presencial" v={o.pickup == null ? null : o.pickup ? "sim" : "não"} />
+              <Row k="Tipo de vendedor" v={o.sellerType === "pessoa-fisica" ? "Pessoa física" : o.sellerType === "profissional" ? "Profissional (CNPJ)" : o.sellerType === "loja" ? "A própria loja" : null} />
               <Row k="Origem" v={o.origin === "BR" ? "Brasil" : o.origin === "INTL" ? "Internacional" : "não verificada"} />
             </tbody></table>
             {a.cost.notes.length > 0 && <ul className="text-xs text-muted mt-3 space-y-0.5">{a.cost.notes.map((n) => <li key={n}>• {n}</li>)}</ul>}

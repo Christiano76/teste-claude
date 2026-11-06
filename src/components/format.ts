@@ -17,6 +17,17 @@ export const VERDICT: Record<string, string> = {
   "pouco-recomendado": "Pouco recomendado",
 };
 
+export const CONDITION: Record<string, string> = { novo: "Novo", seminovo: "Seminovo", usado: "Usado", recondicionado: "Recondicionado", mostruario: "Mostruário", "nao-informado": "Estado não informado" };
+export const RISK: Record<string, [string, string]> = {
+  baixo: ["Baixo risco aparente", "var(--color-good)"],
+  atencao: ["Atenção", "var(--color-mid)"],
+  alto: ["Alto risco", "var(--color-bad)"],
+  insuficiente: ["Informações insuficientes", "var(--color-muted)"],
+};
+export function pct(n: number | null | undefined): string {
+  return n == null ? "—" : `${Math.round(n * 100)}%`;
+}
+
 export function deliveryText(o: { delivery: { minDays: number; maxDays: number } | null; origin: string | null }): string {
   if (o.delivery) return o.delivery.minDays === o.delivery.maxDays ? `até ${o.delivery.maxDays} dia(s)` : `${o.delivery.minDays}–${o.delivery.maxDays} dias`;
   return o.origin === "INTL" ? "internacional · prazo não verificado" : "prazo não verificado";

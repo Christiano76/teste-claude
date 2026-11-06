@@ -14,6 +14,9 @@ O PC Hunter coleta ofertas **reais** de PCs gamer e monitores com entrega para o
 | **AliExpress** | Affiliate API | ⚠️ Implementado, **não testado** | `ALIEXPRESS_APP_KEY`/`SECRET`. Impostos de importação são estimados à parte. |
 | **Shopee** | Affiliate Open API (GraphQL) | ⚠️ Implementado, **não testado** | `SHOPEE_AFFILIATE_APP_ID`/`SECRET` |
 | **Feeds de produtos** | Google Merchant XML / CSV / JSON | ✅ Parser testado com fixtures | Um feed real (`PRODUCT_FEEDS`), por exemplo de programas de afiliados (Awin, Lomadee, Rakuten…). É o caminho para Pichau, Terabyte, Magalu e outras lojas. |
+| OLX | — | ❌ Sem API pública de busca (a API é para parceiros publicarem); termos proíbem coleta automatizada | Parceria autorizada com a OLX |
+| Facebook Marketplace | — | ❌ A Meta não oferece API de busca do Marketplace | Autorização formal da Meta |
+| Enjoei, grupos, fóruns, classificados | — | ❌ Sem API pública | Feed/RSS autorizado (`PRODUCT_FEEDS`) |
 | Pichau, TerabyteShop, Magazine Luiza, GK Infostore | — | ❌ Bloqueados: `HTTP 403` de anti-bot nos testes | Não contornamos proteções anti-bot (termos de uso). Use feed de afiliado. |
 | Patoloco | — | ❌ Não testado: redireciona para `patoloco.com.br`, que não estava liberado na rede do teste | Sem API pública conhecida. Use feed, se a loja oferecer. |
 | ViaCEP + BrasilAPI | CEP → UF/cidade | ✅ Funcionando | — |
@@ -37,7 +40,18 @@ A página **/fontes** do app mostra esse status ao vivo, com o resultado da últ
 - **Mineração contínua:** cron que faz coleta profunda, enriquece fichas técnicas, desativa ofertas que sumiram e verifica alertas. A busca do usuário também coleta sob demanda, com cache.
 - **Descoberta de lojas:** vendedores e lojas novos que chegam pelas fontes (marketplaces, feeds) entram na tabela `stores` com reputação "desconhecida".
 
-## Algoritmo de pontuação
+## Garimpo: estado, preço de mercado, risco e três notas
+
+- **Estado de conservação** (6 classes): Novo, Seminovo, Usado, Recondicionado, Mostruário, Não informado. Vem do dado estruturado da fonte (ex.: *open box* da KaBuM!) e do texto do anúncio. A coleta agendada também busca usados, seminovos e recondicionados (o marketplace da KaBuM! tem anúncios reais desse tipo).
+- **Preço médio de mercado:** mediana de anúncios **novos comparáveis**. Para PCs, é preciso desempenho em jogos equivalente (±12%, depois ±25%), processador de classe parecida e o mesmo formato (com/sem monitor). Para monitores, mesma resolução, frequência próxima e mesmo painel. O valor é ajustado pelo estado: um usado é comparado ao preço justo de um usado (novo 100%, mostruário 88%, recondicionado 80%, seminovo 75%, usado 68%). Sem comparáveis suficientes, usa a curva de mercado, e o desconto fica marcado como estimativa de baixa confiança.
+- **Três notas independentes (0–100):** **Custo-benefício** (todos os critérios técnicos e de entrega, sem a reputação), **Desconto real** (35 pontos no preço médio; cada 10% abaixo soma 13) e **Confiabilidade** (loja/vendedor, pessoa física ou profissional, dados que faltam, sinais de golpe, foto repetida entre vendedores, item usado sem garantia, estoque).
+- **Nota geral** = 45% custo-benefício + 25% desconto + 30% confiabilidade. Fica limitada a 35 em **alto risco** e a 55 com **informações insuficientes**.
+- **Risco:** Baixo risco aparente · Atenção · Alto risco · Informações insuficientes, sempre com os motivos. Sinais avaliados: preço extremo, palavras de golpe, pedido de pagamento ou contato fora da plataforma, especificações inconsistentes, vendedor mal avaliado, foto reaproveitada, dados ausentes. **Nenhum anúncio é apresentado como seguro.**
+- **GARIMPO EXTREMO:** só anúncios ≥20% abaixo da média de comparáveis (com amostra suficiente), sem alto risco, com dados suficientes e, para PCs, com desempenho real para jogos (máquina obsoleta barata não entra). Ordena pelo maior desconto real.
+- **Filtros extras:** estado, UF do vendedor, profissional × pessoa física, retirada presencial. **Ordenação:** menor preço, maior desconto real, melhor custo-benefício.
+- **Radar (/radar):** anúncios novos, quedas de preço e anúncios removidos ou esgotados, alimentado pela coleta agendada.
+
+## Algoritmo de pontuação técnica (base do custo-benefício)
 
 Pesos (PC / Monitor):
 
@@ -95,7 +109,7 @@ cp .env.example .env.local        # ajuste DATABASE_URL
 npm run db:migrate                # cria as tabelas e cadastra as lojas
 npm run refresh -- 3              # primeira coleta (3 páginas por consulta)
 npm run dev                       # http://localhost:3000
-npm test                          # 32 testes
+npm test                          # 38 testes
 npm run build && npm start
 ```
 

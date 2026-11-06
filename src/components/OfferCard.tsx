@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import type { AnalyzedOffer } from "@/lib/types";
-import { brl, deliveryText } from "./format";
+import { brl, CONDITION, deliveryText, RISK } from "./format";
 import { FavoriteButton } from "./FavoriteButton";
 import { ScoreBadge } from "./ScoreBadge";
 
@@ -50,6 +50,15 @@ export function OfferCard({ item, index = 0, favorite = false }: { item: Analyze
           <ScoreBadge score={a.score} verdict={a.verdict} size="md" />
           <FavoriteButton offerId={o.id} initial={favorite} />
         </div>
+        <div className="grid grid-cols-3 gap-1.5 text-center">
+          <Mini label="Custo-benef." v={a.scores.custoBeneficio} />
+          <Mini label="Desconto real" v={a.scores.desconto} />
+          <Mini label="Confiança" v={a.scores.confiabilidade} />
+        </div>
+        <div className="flex flex-wrap gap-1">
+          <span className={`chip ${a.condition === "novo" ? "" : "!text-accent-2 !border-accent-2/40"}`}>{CONDITION[a.condition]}</span>
+          <span className="chip" style={{ color: RISK[a.risk.level][1], borderColor: "currentColor" }} title={a.risk.reasons.join(" ")}>{RISK[a.risk.level][0]}</span>
+        </div>
         <Link href={`/oferta/${o.id}`} className="text-sm font-medium leading-snug line-clamp-2 hover:text-accent" title={o.title}>{o.title}</Link>
         <div className="flex flex-wrap gap-1">{specLine(item).slice(0, 6).map((s) => <span key={s} className="chip">{s}</span>)}</div>
         {a.performance?.tierLabel && <p className="text-xs text-muted">{a.performance.tierLabel}</p>}
@@ -63,9 +72,13 @@ export function OfferCard({ item, index = 0, favorite = false }: { item: Analyze
             {discount ? <span className={`chip ${a.priceInsight?.fakeDiscount ? "!text-bad !border-bad/40" : "!text-good !border-good/40"}`}>−{discount}%{a.priceInsight?.fakeDiscount ? " suspeito" : ""}</span> : null}
           </div>
           <div className="text-xs text-muted space-y-0.5">
+            {a.market.price != null && <div className="flex justify-between gap-2"><span>Média de mercado</span><span className="num">{brl(a.market.price)}{a.market.comparables === 0 && <span className="text-faint"> (est.)</span>}</span></div>}
+            {a.market.savings != null && a.market.savings > 0 && <div className="flex justify-between gap-2"><span>Economia estimada</span><span className="num text-good">{brl(a.market.savings)} ({Math.round((a.market.discount ?? 0) * 100)}%)</span></div>}
             <div className="flex justify-between gap-2"><span>Custo final</span><span className="num text-fg">{brl(a.cost.total)}{!a.cost.totalIsComplete && <span className="text-faint"> + frete</span>}</span></div>
             {a.cost.importTax != null && <div className="flex justify-between"><span>Impostos (est.)</span><span className="num">{brl((a.cost.importTax ?? 0) + (a.cost.icms ?? 0))}</span></div>}
             <div className="flex justify-between gap-2"><span>Entrega</span><span className="text-right">{deliveryText(o)}</span></div>
+            <div className="flex justify-between gap-2"><span>Local do vendedor</span><span>{o.sellerLocation ?? "não informado"}{o.pickup ? " · retirada" : ""}</span></div>
+            <div className="flex justify-between gap-2"><span>Verificado em</span><span className="num">{new Date(o.lastCheckedAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}</span></div>
             <div className="flex justify-between gap-2"><span>Loja</span><span className="text-right truncate max-w-[65%]" title={a.storeReputation.basis}>{o.storeName}{o.sellerName && o.isMarketplace && o.sellerName !== o.storeName ? ` · ${o.sellerName}` : ""} · <span className={a.storeReputation.score >= 72 ? "text-good" : a.storeReputation.score >= 58 ? "text-mid" : "text-bad"}>{a.storeReputation.label}</span></span></div>
           </div>
           {warn.length > 0 && (
@@ -81,6 +94,16 @@ export function OfferCard({ item, index = 0, favorite = false }: { item: Analyze
         </div>
       </div>
     </article>
+  );
+}
+
+function Mini({ label, v }: { label: string; v: number | null }) {
+  const c = v == null ? "var(--color-faint)" : v >= 75 ? "var(--color-good)" : v >= 60 ? "var(--color-mid)" : "var(--color-bad)";
+  return (
+    <div className="rounded-lg bg-surface-2 py-1.5">
+      <div className="text-sm font-bold num" style={{ color: c }}>{v ?? "—"}</div>
+      <div className="text-[10px] text-faint leading-tight">{label}</div>
+    </div>
   );
 }
 

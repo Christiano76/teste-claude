@@ -8,6 +8,11 @@
 export type Category = "pc" | "monitor";
 export type SearchMode = "pc" | "pc-monitor" | "monitor";
 export type Origin = "BR" | "INTL";
+/** Estado de conservação (6 classes). */
+export type Condition = "novo" | "seminovo" | "usado" | "recondicionado" | "mostruario" | "nao-informado";
+/** loja = a própria loja vende; profissional = vendedor PJ/marketplace; pessoa-fisica = particular. */
+export type SellerType = "loja" | "profissional" | "pessoa-fisica";
+export type RiskLevel = "baixo" | "atencao" | "alto" | "insuficiente";
 
 export interface DeliveryEstimate {
   minDays: number;
@@ -46,7 +51,10 @@ export interface RawOffer {
   origin: Origin | null;
   /** Impostos de importação já inclusos no preço (ex.: checkout Remessa Conforme). */
   taxesIncluded: boolean | null;
-  condition: "new" | "used" | "refurbished" | null;
+  condition: Condition | null;
+  sellerType: SellerType | null;
+  /** Retirada presencial disponível (null = não informado). */
+  pickup: boolean | null;
   brand: string | null;
   categoryHint: Category | null;
   /** Texto extra com especificações (descrição/ficha técnica). */
@@ -173,6 +181,23 @@ export interface Analysis {
   storeReputation: { score: number; label: string; basis: string };
   priceInsight: PriceInsight | null;
   suspicious: boolean;
+  condition: Condition;
+  market: MarketEstimate;
+  risk: { level: RiskLevel; reasons: string[] };
+  scores: { custoBeneficio: number; desconto: number | null; confiabilidade: number; geral: number };
+  scoreNotes: { custoBeneficio: string; desconto: string; confiabilidade: string };
+}
+
+export interface MarketEstimate {
+  /** Preço médio de mercado estimado para este produto NESTE estado de conservação. */
+  price: number | null;
+  /** Preço médio do equivalente novo. */
+  newPrice: number | null;
+  comparables: number;
+  basis: string;
+  /** Desconto real (0.3 = 30% abaixo do mercado). Negativo = acima do mercado. */
+  discount: number | null;
+  savings: number | null;
 }
 
 export interface PriceInsight {

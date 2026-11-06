@@ -4,6 +4,7 @@
  */
 import { createHash } from "crypto";
 import { config } from "../config";
+import { classifyCondition } from "../market/condition";
 import type { RawOffer } from "../types";
 import { HttpError, fetchWithPolicy } from "../util/http";
 import { type Connector, defaultQuery, emptyOffer, type SearchPage, type SearchParams } from "./types";
@@ -60,6 +61,8 @@ export const shopee: Connector = {
       sellerName: n.shopName,
       isMarketplace: true,
       productRating: Number(n.ratingStar) || null,
+      sellerType: n.shopType?.length ? ("profissional" as const) : null,
+      condition: classifyCondition(n.productName, null, null),
       categoryHint: p.category,
     }));
     return { offers, hasMore: !!d.data?.productOfferV2?.pageInfo.hasNextPage };

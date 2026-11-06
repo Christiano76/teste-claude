@@ -6,6 +6,7 @@
  */
 import { config } from "../config";
 import { stripHtml } from "../hardware/specs";
+import { classifyCondition } from "../market/condition";
 import type { Category, RawOffer } from "../types";
 import { fetchJson } from "../util/http";
 import { type Connector, defaultQuery, emptyOffer, type SearchPage, type SearchParams } from "./types";
@@ -34,7 +35,7 @@ interface KabumAttrs {
   has_free_shipping: boolean;
   is_marketplace: boolean;
   is_openbox: boolean;
-  marketplace?: { seller_name?: string; state?: string } | null;
+  marketplace?: { seller_name?: string; state?: string; seller_sale_pj?: boolean } | null;
   manufacturer?: { name?: string } | null;
   images?: string[];
   photos?: { g?: string[]; m?: string[] };
@@ -53,7 +54,8 @@ interface KabumItem {
 function categoryOf(menu: string): Category | null {
   const m = menu.toLowerCase();
   if (m.includes("/monitores")) return "monitor";
-  if (m.startsWith("computadores/pc") || m.includes("/pc gamer") || m.includes("computadores/computadores")) return "pc";
+  if (m.includes("notebook") || m.includes("tablet")) return null;
+  if (m.startsWith("computadores/pc") || m.includes("/pc gamer") || m.includes("computadores/computadores") || m.includes("desktop") || m.includes("workstation")) return "pc";
   return null;
 }
 
@@ -90,7 +92,8 @@ function mapItem(it: KabumItem, wanted: Category): RawOffer | null {
     freeShipping: a.has_free_shipping,
     origin: "BR",
     taxesIncluded: true,
-    condition: a.is_openbox ? "refurbished" : "new",
+    condition: classifyCondition(a.title, null, null, { openbox: a.is_openbox, storeSellsNewByDefault: true }),
+    sellerType: !a.is_marketplace ? "loja" : a.marketplace?.seller_sale_pj === false ? "pessoa-fisica" : "profissional",
     brand: a.manufacturer?.name && a.manufacturer.name !== "-" ? a.manufacturer.name : null,
     categoryHint: cat,
     sellerLocation: a.marketplace?.state ?? null,

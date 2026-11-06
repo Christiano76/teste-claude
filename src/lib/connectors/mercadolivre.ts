@@ -5,6 +5,7 @@
  * para o token ser obtido/renovado automaticamente.
  */
 import { config } from "../config";
+import { classifyCondition } from "../market/condition";
 import type { RawOffer } from "../types";
 import { HttpError, fetchJson, fetchWithPolicy } from "../util/http";
 import { type Connector, defaultQuery, emptyOffer, type SearchPage, type SearchParams, type ShippingQuote } from "./types";
@@ -44,6 +45,7 @@ interface MlItem {
   address?: { state_name?: string };
   international_delivery_mode?: string;
   tags?: string[];
+  official_store_id?: number | null;
 }
 
 function attr(it: MlItem, id: string): string | null {
@@ -67,7 +69,8 @@ function mapItem(it: MlItem, cat: "pc" | "monitor"): RawOffer {
     freeShipping: it.shipping?.free_shipping ?? null,
     origin: intl ? "INTL" : "BR",
     taxesIncluded: intl ? null : true,
-    condition: it.condition === "new" ? "new" : it.condition === "used" ? "used" : it.condition === "refurbished" ? "refurbished" : null,
+    condition: classifyCondition(it.title, null, it.condition),
+    sellerType: it.official_store_id ? "loja" : "profissional",
     brand: attr(it, "BRAND"),
     categoryHint: cat,
     sellerLocation: it.address?.state_name ?? null,
