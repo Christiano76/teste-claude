@@ -173,6 +173,20 @@ table.spec td:first-child { color: var(--muted); width: 44%; padding-right: 12px
 .resgrid small { display: block; color: var(--faint); font-family: var(--mono); font-size: 11px; }
 ul.flags { margin: 0; padding: 0; list-style: none; display: grid; gap: 5px; font-size: 13px; }
 .lvl-danger { color: var(--bad); } .lvl-warn { color: var(--mid); } .lvl-info { color: var(--muted); }
+.cep { display: flex; gap: 6px; align-items: center; }
+.cep input { width: 118px; }
+.cep span { font-size: 12px; color: var(--muted); }
+.tiers { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.tiers button { border: 1px solid var(--line); background: var(--surface); color: var(--muted); border-radius: 10px; padding: 7px 12px; cursor: pointer; font-size: 13px; }
+.tiers button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: rgba(46,230,197,.08); }
+.tiers b { color: var(--fg); font-variant-numeric: tabular-nums; }
+.srcgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.src { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: grid; gap: 8px; align-content: start; }
+.src .h { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.src p { margin: 0; font-size: 12.5px; color: var(--muted); }
+.st { font-size: 11.5px; border-radius: 99px; padding: 2px 9px; border: 1px solid currentColor; white-space: nowrap; }
+.ok-c { color: var(--good); } .warn-c { color: var(--mid); } .bad-c { color: var(--bad); }
+.envok { color: var(--good) !important; } .envno { color: var(--bad) !important; }
 footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--faint); font-size: 12px; text-align: center; }
 .sk { background: linear-gradient(90deg, var(--surface) 0%, var(--surface-2) 50%, var(--surface) 100%); background-size: 200% 100%; animation: sh 1.4s linear infinite; border-radius: 14px; height: 420px; }
 @keyframes sh { from { background-position: 200% 0; } to { background-position: -200% 0; } }
@@ -198,11 +212,15 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
       <a href="#pc" data-tab="pc">PC Gamer</a>
       <a href="#pc-monitor" data-tab="pc-monitor">PC + Monitor</a>
       <a href="#monitor" data-tab="monitor">Monitor</a>
+      <a href="#kit" data-tab="kit">Kits</a>
       <a href="#garimpo" data-tab="garimpo" class="gar">Garimpo Extremo</a>
+      <a href="#entrega" data-tab="entrega" class="gar">Garimpo c/ entrega</a>
       <a href="#radar" data-tab="radar">Radar</a>
       <a href="#favoritos" data-tab="favoritos">Favoritos</a>
+      <a href="#fontes" data-tab="fontes">Fontes</a>
     </nav>
-    <span class="stamp" id="stamp">carregando dados…</span>
+    <form class="cep" id="cepForm" style="margin-left:auto"><input class="input num" id="cep" inputmode="numeric" maxlength="9" placeholder="Seu CEP" aria-label="Seu CEP"><button class="btn btn-ghost" type="submit" style="padding:7px 10px">OK</button><span id="cepUf"></span></form>
+    <span class="stamp" id="stamp" style="margin-left:0">carregando dados…</span>
   </div>
 </header>
 
@@ -252,8 +270,21 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
   const norm = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
   const pct = (d) => Math.round(d * 100);
 
+  // Faixas oficiais de CEP por estado (Correios) — resolvido localmente, sem enviar o CEP a ninguém
+  const CEP_UF = [[1000,19999,"SP"],[20000,28999,"RJ"],[29000,29999,"ES"],[30000,39999,"MG"],[40000,48999,"BA"],[49000,49999,"SE"],[50000,56999,"PE"],[57000,57999,"AL"],[58000,58999,"PB"],[59000,59999,"RN"],[60000,63999,"CE"],[64000,64999,"PI"],[65000,65999,"MA"],[66000,68899,"PA"],[68900,68999,"AP"],[69000,69299,"AM"],[69300,69399,"RR"],[69400,69899,"AM"],[69900,69999,"AC"],[70000,72799,"DF"],[72800,72999,"GO"],[73000,73699,"DF"],[73700,76799,"GO"],[76800,76999,"RO"],[77000,77999,"TO"],[78000,78899,"MT"],[79000,79999,"MS"],[80000,87999,"PR"],[88000,89999,"SC"],[90000,99999,"RS"]];
+  const cepUf = (cep) => { const d = String(cep).replace(/\D/g, ""); if (d.length !== 8) return null; const p = +d.slice(0, 5); const r = CEP_UF.find(([a, b]) => p >= a && p <= b); return r ? r[2] : null; };
+  let buyer = null;
+  try { const c = localStorage.getItem("pch_cep"); if (c) buyer = { cep: c, uf: cepUf(c) }; } catch (e) {}
+  /** Entrega para o comprador: envio local só vale na mesma UF; sem confirmação, null. */
+  function deliverable(o) {
+    if (o.dl.m === "envio-local") { if (!buyer || !buyer.uf || !o.loc) return null; return o.loc === buyer.uf; }
+    return o.dl.ok;
+  }
+  const ENV = { "envio-nacional": "Nacional", "envio-local": "Só local", internacional: "Internacional", retirada: "Só retirada", "sem-envio": "Sem envio", "nao-confirmado": "Não confirmado" };
+  const TIERS = [["pc-500", "PC até R$ 500"], ["pc-700", "PC até R$ 700"], ["pc-1000", "PC até R$ 1.000"], ["monitor-200", "Monitor até R$ 200"], ["kit-barato", "Kit de hardware até R$ 400"]];
+
   let D = null, IMG = {}, byId = new Map();
-  const state = { mode: "pc", q: "", sort: "score", shown: 24, f: {}, gar: false };
+  const state = { mode: "pc", q: "", sort: "score", shown: 24, f: {}, gar: false, tier: "" };
   let favs = new Set();
   try { favs = new Set(JSON.parse(localStorage.getItem("pch_favs") || "[]")); } catch (e) {}
   const saveFavs = () => { try { localStorage.setItem("pch_favs", JSON.stringify([...favs])); } catch (e) {} };
@@ -263,6 +294,9 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
     "pc-monitor": { h: "PC Gamer + Monitor", sub: "Kits com monitor incluso e combinações de anúncios separados, com o custo total e a comparação kit × separado." },
     monitor: { h: "Monitor", sub: "Monitores novos, usados e recondicionados: resolução, tamanho, painel, frequência e tempo de resposta contra o preço médio de modelos equivalentes." },
     garimpo: { h: "Garimpo Extremo", sub: "Anúncios pelo menos 20% abaixo da média de anúncios comparáveis no mesmo estado de conservação, com dados suficientes e sem alto risco. Preço baixo de máquina obsoleta não entra." },
+    kit: { h: "Kits de hardware", sub: "Processador + placa-mãe (± memória e SSD), novos e usados, comparados com kits da mesma composição." },
+    entrega: { h: "Garimpo Extremo com entrega", sub: "PCs até R$ 500, R$ 700 e R$ 1.000, monitores até R$ 200 e kits de hardware até R$ 400 — só com envio confirmado. Custo total = produto + frete + taxas conhecidas. Sem preço mínimo." },
+    fontes: { h: "Fontes", sub: "Cada plataforma com o tipo de integração, o status real verificado, a quantidade de anúncios, a última atualização, erros e credenciais necessárias." },
     radar: { h: "Radar", sub: "O que mudou entre as coletas: quedas de preço e anúncios novos." },
     favoritos: { h: "Favoritos", sub: "Ofertas salvas neste navegador." },
   };
@@ -292,7 +326,7 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
         <div class="chead"><div class="score">${ring(o.s)}<span class="verdict" style="color:${color(o.s)}">${VERDICT[o.v]}</span></div>
           <button class="fav" data-fav="${o.id}" aria-pressed="${favs.has(o.id)}" aria-label="Salvar nos favoritos"><svg width="16" height="16" viewBox="0 0 24 24" fill="${favs.has(o.id) ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2"><path d="M12 21l-1.4-1.3C5.4 15 2 12 2 8.4 2 5.4 4.4 3 7.4 3c1.7 0 3.4.8 4.6 2.1C13.2 3.8 14.9 3 16.6 3 19.6 3 22 5.4 22 8.4c0 3.6-3.4 6.6-8.6 11.3L12 21z"/></svg></button></div>
         <div class="minis">${mini("Custo-benefício", o.sc.custoBeneficio)}${mini("Desconto real", o.sc.desconto)}${mini("Confiabilidade", o.sc.confiabilidade)}</div>
-        <div class="chips"><span class="chip ${o.cond === "novo" ? "" : "cond"}">${COND[o.cond]}</span><span class="chip risk" style="color:${RISK[o.risk][1]}" title="${esc(o.rr.join(" "))}">${RISK[o.risk][0]}</span></div>
+        <div class="chips"><span class="chip ${o.cond === "novo" ? "" : "cond"}">${COND[o.cond]}</span><span class="chip risk" style="color:${RISK[o.risk][1]}" title="${esc(o.rr.join(" "))}">${RISK[o.risk][0]}</span>${o.dl.pt ? `<span class="chip" style="color:var(--good);border-color:rgba(52,211,153,.4)" title="${esc(o.dl.pt)}">Proteção ao comprador</span>` : ""}${o.tier ? `<span class="chip" style="color:var(--accent);border-color:rgba(46,230,197,.4)">${esc((TIERS.find((t) => t[0] === o.tier) || [, ""])[1])}</span>` : ""}</div>
         <button class="ctitle" data-open="${o.id}" title="${esc(o.t)}">${esc(o.t)}</button>
         <div class="chips">${specChips(o).slice(0, 6).map((c) => `<span class="chip">${esc(c)}</span>`).join("")}</div>
         ${o.perf && o.perf.tier ? `<p class="tier">${esc(o.perf.tier)}</p>` : ""}
@@ -301,7 +335,8 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
         <dl class="kv">
           <dt>Média de mercado</dt><dd class="num">${o.mk.p != null ? brl(o.mk.p) + (o.mk.n ? "" : ' <span class="faint">(est.)</span>') : '<span class="faint">não calculável</span>'}</dd>
           ${save ? `<dt>Economia estimada</dt><dd class="num good">${brl(o.mk.sv)}</dd>` : ""}
-          <dt>Frete</dt><dd>${o.fs ? "grátis" : '<span class="faint">calcular na loja</span>'}</dd>
+          <dt>Envio</dt><dd class="${deliverable(o) === true ? "envok" : deliverable(o) === false ? "envno" : "faint"}">${ENV[o.dl.m]}${o.dl.m === "envio-local" && deliverable(o) == null ? " · confirme o CEP" : ""}</dd>
+          <dt>Frete</dt><dd>${o.fs ? "grátis" : '<span class="faint">calcular no anúncio</span>'}</dd>
           <dt>Prazo</dt><dd><span class="faint">não informado pela fonte</span></dd>
           <dt>Vendedor</dt><dd title="${esc(o.se || o.st)}">${esc(o.se || o.st)}${o.loc ? " · " + esc(o.loc) : ""}</dd>
           <dt>Verificado</dt><dd class="num">${verified(o)}</dd>
@@ -327,7 +362,7 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
   }
 
   // ---------- filtros ----------
-  const baseList = () => state.mode === "monitor" ? D.mons : state.mode === "garimpo" ? [...D.pcs, ...D.mons] : D.pcs;
+  const baseList = () => state.mode === "monitor" ? D.mons : state.mode === "kit" ? D.kits : state.mode === "garimpo" ? [...D.pcs, ...D.mons, ...D.kits] : state.mode === "entrega" ? [...D.pcs, ...D.mons, ...D.kits].filter((o) => o.tier && deliverable(o) === true) : D.pcs;
   function facet(list, key) {
     const m = new Map(); for (const o of list) { const k = key(o); if (k) m.set(k, (m.get(k) || 0) + 1); }
     return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40);
@@ -336,6 +371,7 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
   const sel = (id, label, opts, val) => `<div><label class="flabel" for="f-${id}">${label}</label><select class="input" id="f-${id}" data-sel="${id}"><option value="">Qualquer</option>${opts.map(([v, n]) => `<option value="${esc(v)}" ${val === v ? "selected" : ""}>${esc(v)} (${n})</option>`).join("")}</select></div>`;
   function renderFilters() {
     const f = state.f, el = $("#filters");
+    if (state.mode === "fontes") { el.innerHTML = `<p class="fine">Uma plataforma só aparece como "Funcionando" quando houve busca real com anúncios na base.</p>`; return; }
     if (state.mode === "favoritos" || state.mode === "radar") { el.innerHTML = `<p class="fine">${state.mode === "favoritos" ? "Favoritos ficam salvos só neste navegador." : "O radar compara as coletas sucessivas da mesma fonte."}</p>`; return; }
     const base = baseList();
     const condCount = Object.fromEntries(facet(base, (o) => o.cond));
@@ -348,7 +384,7 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
       h += sel("loc", "Localização do vendedor (UF)", facet(base, (o) => o.loc), f.loc);
     }
     h += seg("score", "Nota geral mínima", [["", "Todas"], ["60", "60+"], ["75", "75+"], ["90", "90+"]], f.score);
-    if (state.mode !== "monitor") {
+    if (state.mode !== "monitor" && state.mode !== "kit") {
       h += sel("cpu", "Processador", facet(D.pcs, (o) => o.pc && o.pc.cpu && o.pc.cpu.replace(/\s*\(.*\)$/, "")), f.cpu);
       h += sel("gpu", "Placa de vídeo", facet(D.pcs, (o) => o.pc && o.pc.gpu && o.pc.gpu.replace(/\s*\(.*\)$/, "")), f.gpu);
       h += seg("ram", "Memória RAM mínima", [["", "—"], ["8", "8"], ["16", "16"], ["32", "32"], ["64", "64"]], f.ram, " GB");
@@ -359,8 +395,9 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
       h += sel("res", "Resolução do monitor", facet(D.mons, (o) => o.mon && o.mon.res), f.res);
       h += seg("hz", "Frequência mínima", [["", "—"], ["75", "75"], ["144", "144"], ["165", "165"], ["240", "240"]], f.hz, " Hz");
     }
-    if (state.mode === "pc" || state.mode === "monitor") h += sel("brand", "Marca", facet(base, (o) => o.br), f.brand);
-    h += `<div><span class="flabel">Entrega</span><div class="checks"><label class="check"><input type="checkbox" id="f-fs" ${f.fs ? "checked" : ""}> Somente frete grátis</label><label class="check"><input type="checkbox" id="f-pick" ${f.pick ? "checked" : ""}> Aceita retirada presencial</label></div><p class="fine" style="margin-top:4px">A fonte ativa não informa retirada nem prazo; esses filtros passam a valer com fontes que informam.</p></div>`;
+    if (state.mode === "kit") h += sel("cpu", "Processador", facet(D.kits, (o) => o.pc && o.pc.cpu && o.pc.cpu.replace(/\s*\(.*\)$/, "")), f.cpu);
+    if (state.mode === "pc" || state.mode === "monitor" || state.mode === "kit") h += sel("brand", "Marca", facet(base, (o) => o.br), f.brand);
+    h += `<div><span class="flabel">Entrega</span><div class="checks">${state.mode === "entrega" ? "" : [["", "Qualquer modalidade"], ["entrega", "Somente com entrega disponível"], ["ambos", "Entrega ou retirada presencial"], ["retirada", "Somente retirada presencial"]].map(([v, l]) => `<label class="check"><input type="radio" name="env" data-env="${v}" ${(f.env ?? "") === v ? "checked" : ""}> ${l}</label>`).join("")}<label class="check"><input type="checkbox" id="f-fs" ${f.fs ? "checked" : ""}> Somente frete grátis</label></div><p class="fine" style="margin-top:4px">"Somente entrega" exclui anúncios sem envio confirmado para o seu CEP. Retirada só conta quando a fonte informa (a fonte ativa hoje não informa).</p></div>`;
     h += `<button class="link" type="button" id="clearF">Limpar filtros</button>`;
     el.innerHTML = h;
   }
@@ -379,6 +416,9 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
     if (f.loc && o.loc !== f.loc) return false;
     if (f.fs && !o.fs) return false;
     if (f.pick && !o.pick) return false;
+    if (f.env === "entrega" && deliverable(o) !== true) return false;
+    if (f.env === "ambos" && !(deliverable(o) === true || o.pick === true)) return false;
+    if (f.env === "retirada" && o.pick !== true) return false;
     if (f.brand && o.br !== f.brand) return false;
     if (o.pc) {
       if (f.cpu && !(o.pc.cpu || "").startsWith(f.cpu)) return false;
@@ -407,20 +447,21 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
 
   function garBox() {
     const el = $("#garBox");
-    if (state.mode !== "pc" && state.mode !== "monitor") { el.innerHTML = ""; return; }
-    const n = (state.mode === "pc" ? D.pcs : D.mons).filter((o) => o.gar).length;
-    el.innerHTML = `<button type="button" class="garimpo" id="garToggle" aria-pressed="${state.gar}"><b>GARIMPO EXTREMO ${state.gar ? "· ATIVO" : ""}</b><span>${n} ${state.mode === "pc" ? "PCs" : "monitores"} pelo menos 20% abaixo da média de anúncios comparáveis no mesmo estado, sem alto risco. Toque para ${state.gar ? "ver todos" : "ver só esses"}.</span></button>`;
+    if (state.mode !== "pc" && state.mode !== "monitor" && state.mode !== "kit") { el.innerHTML = ""; return; }
+    const n = (state.mode === "pc" ? D.pcs : state.mode === "kit" ? D.kits : D.mons).filter((o) => o.gar).length;
+    el.innerHTML = `<button type="button" class="garimpo" id="garToggle" aria-pressed="${state.gar}"><b>GARIMPO EXTREMO ${state.gar ? "· ATIVO" : ""}</b><span>${n} ${state.mode === "pc" ? "PCs" : state.mode === "kit" ? "kits" : "monitores"} pelo menos 20% abaixo da média de anúncios comparáveis no mesmo estado, sem alto risco. Toque para ${state.gar ? "ver todos" : "ver só esses"}.</span></button>`;
   }
 
   function render() {
     const m = MODES[state.mode];
     $("#h1").textContent = m.h; $("#sub").textContent = m.sub;
     document.querySelectorAll("nav.tabs a").forEach((a) => a.setAttribute("aria-current", a.dataset.tab === state.mode ? "page" : "false"));
-    $("#sort").hidden = state.mode === "pc-monitor" || state.mode === "radar";
-    $("#bar").hidden = state.mode === "radar";
+    $("#sort").hidden = state.mode === "pc-monitor" || state.mode === "radar" || state.mode === "fontes";
+    $("#bar").hidden = state.mode === "radar" || state.mode === "fontes";
     garBox();
     const out = $("#results");
     if (state.mode === "radar") return renderRadar(out);
+    if (state.mode === "fontes") return renderSources(out);
     if (state.mode === "pc-monitor") {
       const f = state.f;
       const list = D.combos.filter((c) => {
@@ -440,14 +481,24 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
     }
     let list;
     if (state.mode === "favoritos") list = [...favs].map((id) => byId.get(id)).filter(Boolean);
-    else list = baseList().filter((o) => (state.mode === "garimpo" || state.gar ? o.gar : true) && pass(o));
+    else list = baseList().filter((o) => (state.mode === "garimpo" || state.gar ? o.gar : true) && (state.mode !== "entrega" || !state.tier || o.tier === state.tier) && pass(o));
     list = sortList(list.slice());
     $("#count").textContent = `${list.length.toLocaleString("pt-BR")} ofertas`;
+    if (!list.length && state.mode === "entrega") {
+      const all = baseList();
+      out.innerHTML = `<div class="tiers"><button type="button" data-tier="" aria-pressed="${!state.tier}">Todas <b>${all.length}</b></button>${TIERS.map(([id, l]) => `<button type="button" data-tier="${id}" aria-pressed="${state.tier === id}">${l} <b>${all.filter((o) => o.tier === id).length}</b></button>`).join("")}</div><div class="empty">Nenhum anúncio com envio confirmado nesta faixa nas fontes ativas hoje. ${state.tier === "pc-500" || state.tier === "pc-700" ? "O PC completo mais barato encontrado com envio custa mais que isso." : ""}</div>`;
+      return;
+    }
     if (!list.length) {
       out.innerHTML = `<div class="empty">${state.mode === "favoritos" ? "Nenhum favorito ainda. Toque no ♥ de uma oferta para salvá-la aqui." : "Nenhuma oferta para esses filtros. Tente ampliar o orçamento ou limpar os filtros."}</div>`;
       return;
     }
-    out.innerHTML = `<div class="grid">${list.slice(0, state.shown).map(card).join("")}</div>` + (list.length > state.shown ? `<div class="more"><button class="btn btn-ghost" id="moreBtn">Mostrar mais (${(list.length - state.shown).toLocaleString("pt-BR")} restantes)</button></div>` : "");
+    let head = "";
+    if (state.mode === "entrega") {
+      const all = baseList();
+      head = `${buyer && buyer.uf ? "" : `<div class="notice" style="margin-bottom:10px;border-color:rgba(251,191,36,.4)"><span>Informe seu CEP no topo: sem ele não dá para confirmar anúncios com envio só local.</span></div>`}<div class="tiers"><button type="button" data-tier="" aria-pressed="${!state.tier}">Todas <b>${all.length}</b></button>${TIERS.map(([id, l]) => `<button type="button" data-tier="${id}" aria-pressed="${state.tier === id}">${l} <b>${all.filter((o) => o.tier === id).length}</b></button>`).join("")}</div><p class="fine" style="margin:0 0 12px;font-size:12.5px;color:var(--muted)">Só anúncios com envio confirmado, disponíveis e sem alto risco. Preço baixo não torna um anúncio confiável: confira o risco e as notas, e pague sempre pela plataforma (nunca PIX por fora ou depósito antecipado).</p>`;
+    }
+    out.innerHTML = head + `<div class="grid">${list.slice(0, state.shown).map(card).join("")}</div>` + (list.length > state.shown ? `<div class="more"><button class="btn btn-ghost" id="moreBtn">Mostrar mais (${(list.length - state.shown).toLocaleString("pt-BR")} restantes)</button></div>` : "");
   }
 
   function renderRadar(out) {
@@ -461,6 +512,18 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
       <h2>Anúncios novos (${fresh.length})</h2>
       ${fresh.length ? `<div class="grid">${fresh.slice(0, 24).map(card).join("")}</div>` : `<div class="empty">Nenhum anúncio novo desde a primeira coleta deste retrato.</div>`}
       <h2>Removidos ou esgotados</h2><p class="fine" style="font-size:13px">${r.removed} anúncio(s) saíram do ar ou esgotaram nas últimas coletas e não aparecem como disponíveis.</p></div>`;
+  }
+
+  function renderSources(out) {
+    $("#count").textContent = "";
+    const REAL = { funcionando: ["Funcionando", "ok-c"], "requer-credenciais": ["Requer credenciais", "warn-c"], "sem-integracao": ["Sem integração autorizada", "bad-c"], "sem-dados": ["Configurado, sem dados", "warn-c"] };
+    const KIND = { "public-json": "Catálogo público (JSON)", "official-api": "API oficial", "affiliate-api": "API de afiliados", feed: "Feed de produtos", classificados: "Classificados" };
+    out.innerHTML = `<div class="srcgrid">${D.sources.map((c) => `<div class="src"><div class="h"><b>${esc(c.name)}</b><span class="st ${REAL[c.real][1]}">${REAL[c.real][0]}</span></div>
+      <p style="color:var(--faint)">${KIND[c.kind] || esc(c.kind)}</p><p>${esc(c.msg)}</p>
+      <dl class="kv"><dt>Anúncios ativos</dt><dd class="num">${c.n.toLocaleString("pt-BR")}</dd><dt>Usados/seminovos/recond.</dt><dd class="num">${c.used.toLocaleString("pt-BR")}</dd><dt>Com envio confirmado</dt><dd class="num">${c.ship.toLocaleString("pt-BR")}</dd><dt>Última atualização</dt><dd>${c.upd ? new Date(c.upd).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "nunca"}</dd><dt>Credenciais</dt><dd>${c.req.length ? (c.conf ? "configuradas" : "necessárias") : "não precisa"}</dd></dl>
+      ${c.err ? `<p style="color:var(--bad)">Último erro (${new Date(c.err.at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}): ${esc(c.err.m)}</p>` : ""}${!c.conf && c.req.length ? `<p><span style="color:var(--faint)">Requer: </span>${esc(c.req.join(", "))}</p>` : ""}${c.ev ? `<p style="color:var(--faint);font-size:11.5px">Verificação: ${esc(c.ev)}</p>` : ""}
+      <a href="${esc(c.docs)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent);font-size:12px">documentação →</a></div>`).join("")}</div>
+      <h2 style="font:600 17px var(--display);margin:24px 0 10px">Lojas sem integração direta</h2><div class="srcgrid">${D.unsupported.map((u) => `<div class="src"><b>${esc(u.store)}</b><p>${esc(u.reason)}</p></div>`).join("")}</div>`;
   }
 
   // ---------- painel de análise ----------
@@ -487,7 +550,7 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
       <div class="box"><h3>Análise de risco: <span style="color:${RISK[o.risk][1]}">${RISK[o.risk][0]}</span></h3><ul class="flags">${o.rr.map((r) => `<li class="lvl-info">• ${esc(r)}</li>`).join("")}</ul><p class="fine">A análise usa apenas os dados que a fonte publica. Nenhum anúncio é garantido como seguro: confira o vendedor e pague sempre pela plataforma.</p></div>`;
     if (o.flags.length) h += `<div class="box"><h3>Alertas do anúncio</h3><ul class="flags">${o.flags.map((f) => `<li class="lvl-${f[0]}">${f[0] === "info" ? "ℹ" : "⚠"} ${esc(f[1])}</li>`).join("")}</ul></div>`;
     h += `<div class="box"><h3>Detalhe do custo-benefício</h3>${o.comp.filter((c) => c[0] !== "Confiabilidade da loja").map(([l, w, v, d]) => `<div class="meter"><div class="mh"><span>${esc(l)} <small>peso ${w}</small></span><b class="num" style="color:${color(v)}">${v}</b></div><div class="track"><div class="fill" style="width:${v}%;background:${color(v)}"></div></div><p>${esc(d)}</p></div>`).join("")}</div>`;
-    h += `<div class="box"><h3>Custo, entrega e vendedor</h3><table class="spec"><tbody>${row("Preço anunciado (à vista)", brl(o.pr, 2))}${row("Frete", o.fs ? "grátis" : null)}<tr><td>Total</td><td><b class="num">${brl(o.total, 2)}</b>${o.complete ? "" : ' <span class="unv">+ frete a calcular no anúncio</span>'}</td></tr>${row("Prazo de entrega", null)}${row("Retirada presencial", o.pick == null ? null : o.pick ? "sim" : "não")}${row("Vendedor", o.se || o.st)}${row("Tipo de vendedor", STY[o.sty])}${row("Localização do vendedor", o.loc)}${row("Origem", o.org === "BR" ? "Brasil" : o.org)}${row("Última verificação", verified(o))}</tbody></table></div>`;
+    h += `<div class="box"><h3>Custo, entrega e vendedor</h3><table class="spec"><tbody>${row("Preço anunciado (à vista)", brl(o.pr, 2))}${row("Frete", o.fs ? "grátis" : null)}<tr><td>Total</td><td><b class="num">${brl(o.total, 2)}</b>${o.complete ? "" : ' <span class="unv">+ frete a calcular no anúncio</span>'}</td></tr>${row("Modalidade de envio", o.dl.l + (o.dl.m === "envio-local" ? (buyer && buyer.uf ? (deliverable(o) ? " Atende o seu CEP." : " Não atende o seu CEP.") : " Informe o CEP para confirmar.") : ""))}${row("Programa de envio", o.dl.pg)}${row("Proteção ao comprador", o.dl.pt)}${row("Prazo de entrega", null)}${row("Retirada presencial", o.pick == null ? null : o.pick ? "sim" : "não")}${row("Vendedor", o.se || o.st)}${row("Tipo de vendedor", STY[o.sty])}${row("Localização do vendedor", o.loc)}${row("Origem", o.org === "BR" ? "Brasil" : o.org)}${row("Última verificação", verified(o))}</tbody></table></div>`;
     if (o.perf) h += `<div class="box"><h3>Desempenho estimado em jogos</h3><p style="margin:0">${esc(o.perf.tier || "Não verificável com os dados do anúncio.")}</p>${o.perf.res.length ? `<div class="resgrid">${o.perf.res.map((r) => `<div><small>${r.res}</small>${esc(r.label)}</div>`).join("")}</div>` : ""}${o.perf.bn ? `<p class="warn">${esc(o.perf.bn)}</p>` : ""}<p class="fine">Índice relativo (RTX 4060 + Ryzen 5 5600 ≈ 100) baseado em benchmarks públicos agregados. Não é FPS medido.</p></div>`;
     h += `<div class="box"><h3>Configuração identificada</h3><table class="spec"><tbody>`;
     if (p) h += row("Processador", p.cpu ? p.cpu + (p.sock ? " · " + p.sock : "") : null) + row("Placa de vídeo", p.gpu ? p.gpu + (p.vram ? ` · ${p.vram} GB` : "") : null) + row("Memória RAM", p.ram ? `${p.ram} GB${p.rt ? " " + p.rt : ""}` : null) + row("SSD / HD", stoText(p.sto) || null) + row("Placa-mãe", p.mb ? [p.mb.chipset, p.mb.socket].filter(Boolean).join(" · ") : null) + row("Fonte", p.psu ? [p.psu.watts && p.psu.watts + " W", p.psu.rating].filter(Boolean).join(" · ") : null) + row("Sistema", p.os);
@@ -501,9 +564,10 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
   const closePanel = () => { $("#panelRoot").innerHTML = ""; };
 
   document.addEventListener("click", (e) => {
-    const t = e.target.closest("[data-open],[data-fav],[data-close],[data-seg],#moreBtn,#clearF,#openFilters,#closeFilters,#garToggle");
+    const t = e.target.closest("[data-open],[data-fav],[data-close],[data-seg],[data-tier],#moreBtn,#clearF,#openFilters,#closeFilters,#garToggle");
     if (!t) return;
     if (t.dataset.open) { openPanel(+t.dataset.open); return; }
+    if (t.dataset.tier !== undefined) { state.tier = t.dataset.tier; state.shown = 24; render(); return; }
     if (t.dataset.fav) {
       const id = +t.dataset.fav; favs.has(id) ? favs.delete(id) : favs.add(id); saveFavs();
       t.setAttribute("aria-pressed", favs.has(id)); t.querySelector("svg").setAttribute("fill", favs.has(id) ? "currentColor" : "none");
@@ -522,6 +586,7 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
     if (t.dataset && t.dataset.sel) state.f[t.dataset.sel] = t.value || undefined;
     else if (t.dataset && t.dataset.cond) { const s = new Set(state.f.cond || []); t.checked ? s.add(t.dataset.cond) : s.delete(t.dataset.cond); state.f.cond = [...s]; }
     else if (t.id === "f-min" || t.id === "f-max") state.f[t.id.slice(2)] = t.value.replace(/\D/g, "") || undefined;
+    else if (t.dataset && t.dataset.env !== undefined) state.f.env = t.dataset.env || undefined;
     else if (t.id === "f-fs") state.f.fs = t.checked || undefined;
     else if (t.id === "f-pick") state.f.pick = t.checked || undefined;
     else if (t.id === "sort") state.sort = t.value;
@@ -529,25 +594,36 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
     state.shown = 24; render();
   });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePanel(); });
+  function showCep() { $("#cepUf").textContent = buyer && buyer.uf ? buyer.uf : ""; if (buyer) $("#cep").value = buyer.cep.replace(/(\d{5})(\d{3})/, "$1-$2"); }
+  $("#cepForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const d = $("#cep").value.replace(/\D/g, ""); const uf = cepUf(d);
+    if (!uf) { $("#cepUf").textContent = "CEP inválido"; return; }
+    buyer = { cep: d, uf }; try { localStorage.setItem("pch_cep", d); } catch (err) {}
+    showCep(); if (D) render();
+  });
+  showCep();
   $("#searchForm").addEventListener("submit", (e) => { e.preventDefault(); state.q = $("#q").value.trim(); state.shown = 24; render(); });
 
   function route() {
     const h = location.hash.slice(1);
-    state.mode = MODES[h] ? h : "pc"; state.shown = 24; state.f = {}; state.gar = false;
-    state.sort = state.mode === "garimpo" ? "discount" : "score"; $("#sort").value = state.sort;
+    state.mode = MODES[h] ? h : "pc"; state.shown = 24; state.f = {}; state.gar = false; state.tier = "";
+    state.sort = state.mode === "garimpo" ? "discount" : state.mode === "entrega" ? "price" : "score"; $("#sort").value = state.sort;
     closePanel(); renderFilters(); render();
   }
   window.addEventListener("hashchange", route);
 
   Promise.all([fetch("data.json").then((r) => r.json()), fetch("img.json").then((r) => r.json()).catch(() => ({}))]).then(([d, im]) => {
     D = d; IMG = im;
-    for (const o of [...d.pcs, ...d.mons]) byId.set(o.id, o);
+    for (const o of [...d.pcs, ...d.mons, ...d.kits]) byId.set(o.id, o);
     const at = new Date(d.at);
-    const used = [...d.pcs, ...d.mons].filter((o) => o.cond !== "novo").length;
-    const gar = [...d.pcs, ...d.mons].filter((o) => o.gar).length;
+    const all = [...d.pcs, ...d.mons, ...d.kits];
+    const used = all.filter((o) => o.cond !== "novo").length;
+    const gar = all.filter((o) => o.gar).length;
+    const tiered = all.filter((o) => o.tier).length;
     $("#stamp").textContent = `verificado em ${at.toLocaleDateString("pt-BR")} ${at.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
-    $("#notice").innerHTML = `<span class="dot" aria-hidden="true"></span><span><strong>${d.pcs.length.toLocaleString("pt-BR")} PCs e ${d.mons.length.toLocaleString("pt-BR")} monitores reais</strong> (${used} não novos: usados, seminovos, recondicionados) lidos da KaBuM! e do marketplace dela em ${at.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}. <strong>${gar} oportunidades de garimpo</strong> encontradas.
-      <details><summary>Quais fontes estão ativas?</summary>Ativa: KaBuM! (catálogo e marketplace, incluindo vendedores de usados e recondicionados). Prontas, aguardando credenciais: Mercado Livre (novos e usados), Amazon, AliExpress, Shopee e feeds de lojas. Sem integração autorizada disponível: OLX, Facebook Marketplace e Enjoei não oferecem API de busca para terceiros; Pichau, Terabyte, Magalu e GK bloqueiam coleta automatizada. Prazo de entrega e frete por CEP não são informados pela fonte ativa e aparecem como "não informado". Esta página é um retrato da coleta; a versão com servidor atualiza sozinha.</details></span>`;
+    $("#notice").innerHTML = `<span class="dot" aria-hidden="true"></span><span><strong>${d.pcs.length.toLocaleString("pt-BR")} PCs, ${d.mons.length.toLocaleString("pt-BR")} monitores e ${d.kits.length.toLocaleString("pt-BR")} kits de hardware reais</strong> (${used} não novos: usados, seminovos, recondicionados) lidos da KaBuM! e do marketplace dela em ${at.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}. <strong>${gar} oportunidades de garimpo</strong> e <strong>${tiered} no garimpo com entrega</strong>.
+      <details><summary>Quais fontes estão ativas?</summary>Ativa: KaBuM! (catálogo e marketplace, incluindo vendedores de usados e recondicionados). Prontas, aguardando credenciais: Mercado Livre (novos e usados, com frete por CEP), Amazon, Shopee, AliExpress e feeds autorizados. Sem integração autorizada: OLX, Facebook Marketplace e Enjoei (verificado — veja a aba Fontes); Pichau, Terabyte, Magalu e GK bloqueiam coleta automatizada. Prazo de entrega e frete por CEP não são informados pela fonte ativa e aparecem como "não informado". Esta página é um retrato da coleta; a versão com servidor atualiza sozinha.</details></span>`;
     route();
   }).catch(() => { $("#results").innerHTML = `<div class="empty">Não foi possível carregar as ofertas. Recarregue a página.</div>`; });
 })();

@@ -1,7 +1,9 @@
 import { writeFileSync } from "fs";
 import { pool } from "../src/lib/db";
 import { findOffers } from "../src/lib/search/repository";
-import { analyzeOffers, buildCombos, dedupe, isGarimpo, marketCurve, radar } from "../src/lib/search/service";
+import { analyzeOffers, buildCombos, dedupe, deliveryTier, isGarimpo, marketCurve, radar } from "../src/lib/search/service";
+import { CONNECTORS, UNSUPPORTED_STORES } from "../src/lib/connectors/registry";
+import { query } from "../src/lib/db";
 import type { AnalyzedOffer } from "../src/lib/types";
 
 const out = process.argv[2];
@@ -15,6 +17,9 @@ function slim(a: AnalyzedOffer) {
     cond: x.condition, sc: x.scores, sn: x.scoreNotes, risk: x.risk.level, rr: x.risk.reasons,
     mk: { p: x.market.price, np: x.market.newPrice, n: x.market.comparables, b: x.market.basis, d: x.market.discount, sv: x.market.savings },
     gar: isGarimpo(a),
+    tier: deliveryTier(a),
+    dl: { m: x.delivery.mode, ok: x.delivery.deliverable, l: x.delivery.label, pg: x.delivery.program, pt: x.delivery.protection },
+    ship: o.shipAvailable, scope: o.shipScope,
     comp: x.components.map((k) => [k.label, k.weight, k.value, k.detail]),
     flags: x.flags.map((f) => [f.level, f.message]),
     perf: x.performance ? { gi: x.performance.gamingIndex, tier: x.performance.tierLabel, res: x.performance.perResolution, bn: x.performance.bottleneck } : null,
@@ -28,13 +33,33 @@ function slim(a: AnalyzedOffer) {
 (async () => {
   const pcs = dedupe(await analyzeOffers(await findOffers({ category: "pc", limit: 3000 }), null)).sort((a, b) => b.analysis.score - a.analysis.score);
   const mons = dedupe(await analyzeOffers(await findOffers({ category: "monitor", limit: 3000 }), null)).sort((a, b) => b.analysis.score - a.analysis.score);
+  const kits = dedupe(await analyzeOffers(await findOffers({ category: "kit", limit: 3000 }), null)).sort((a, b) => b.analysis.score - a.analysis.score);
+  const per = await query<{ source: string; active: string; used: string; ship: string; last_seen: Date | null }>(
+    `SELECT source, count(*) FILTER (WHERE active AND available IS TRUE) AS active,
+       count(*) FILTER (WHERE active AND available IS TRUE AND condition IN ('usado','seminovo','recondicionado','mostruario')) AS used,
+       count(*) FILTER (WHERE active AND available IS TRUE AND ship_available IS TRUE) AS ship, max(last_seen_at) AS last_seen FROM offers GROUP BY source`);
+  const errs = await query<{ source: string; error: string; finished_at: Date }>(`SELECT DISTINCT ON (source) source, error, finished_at FROM search_runs WHERE status='error' ORDER BY source, started_at DESC`);
+  const runs = await query<{ source: string; status: string }>(`SELECT DISTINCT ON (source) source, status FROM search_runs WHERE status <> 'running' ORDER BY source, started_at DESC`);
+  const sources = CONNECTORS.map((c) => {
+    const st = c.status();
+    const p = per.filter((r) => r.source === c.id || (c.id === "feeds" && r.source.startsWith("feed:")));
+    const listings = p.reduce((n, r) => n + Number(r.active), 0);
+    const last = runs.find((r) => r.source === c.id);
+    const e = errs.find((r) => r.source === c.id);
+    return {
+      name: c.name, kind: c.kind, msg: st.message, req: st.requires, conf: st.configured, ev: c.evidence ?? null, docs: st.docsUrl,
+      real: st.configured && last?.status === "ok" && listings > 0 ? "funcionando" : st.state === "unavailable" ? "sem-integracao" : !st.configured ? "requer-credenciais" : "sem-dados",
+      n: listings, used: p.reduce((n, r) => n + Number(r.used), 0), ship: p.reduce((n, r) => n + Number(r.ship), 0),
+      upd: p.map((r) => r.last_seen).filter(Boolean).sort().pop() ?? null, err: e ? { m: e.error, at: e.finished_at } : null,
+    };
+  });
   const { combos, kitInsight } = buildCombos(pcs, mons);
   const [pcC, monC] = [await marketCurve("pc"), await marketCurve("monitor")];
   const r = await radar(48);
-  const known = new Set([...pcs, ...mons].map((a) => a.offer.id));
+  const known = new Set([...pcs, ...mons, ...kits].map((a) => a.offer.id));
   const data = {
     at: new Date().toISOString(), pcCurveN: pcC.n, monCurveN: monC.n,
-    pcs: pcs.map(slim), mons: mons.map(slim), kitInsight,
+    pcs: pcs.map(slim), mons: mons.map(slim), kits: kits.map(slim), kitInsight, sources, unsupported: UNSUPPORTED_STORES,
     combos: combos.slice(0, 60).map((c) => ({ kind: c.kind, pc: c.pc.offer.id, mon: c.monitor?.offer.id ?? null, total: c.total, complete: c.totalIsComplete, s: c.score, v: c.verdict, notes: c.matchNotes })),
     radar: {
       drops: r.priceDrops.filter((d) => known.has(d.item.offer.id)).map((d) => ({ id: d.item.offer.id, prev: d.previous, cur: d.current, at: d.at })),
@@ -43,6 +68,7 @@ function slim(a: AnalyzedOffer) {
     },
   };
   writeFileSync(`${out}/data.json`, JSON.stringify(data));
-  console.log("pcs", pcs.length, "mons", mons.length, "combos", data.combos.length, "garimpo", data.pcs.filter((x) => x.gar).length + data.mons.filter((x) => x.gar).length, "drops", data.radar.drops.length, "KB", Math.round(JSON.stringify(data).length / 1024));
+  console.log("kits", kits.length, "tiers", JSON.stringify([...data.pcs, ...data.mons, ...data.kits].reduce((m: Record<string, number>, x) => (x.tier ? ((m[x.tier] = (m[x.tier] ?? 0) + 1), m) : m), {})));
+  console.log("pcs", pcs.length, "mons", mons.length, "combos", data.combos.length, "garimpo", [...data.pcs, ...data.mons, ...data.kits].filter((x) => x.gar).length, "drops", data.radar.drops.length, "KB", Math.round(JSON.stringify(data).length / 1024));
   await pool().end();
 })();
