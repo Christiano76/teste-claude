@@ -28,6 +28,27 @@
   color-scheme: dark;
 }
 
+/* Tema claro opcional (o escuro é o padrão) */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --color-bg: #f5f7fa;
+  --color-surface: #ffffff;
+  --color-surface-2: #eef1f5;
+  --color-line: #dde3ea;
+  --color-line-strong: #c4ccd6;
+  --color-fg: #111820;
+  --color-muted: #4d5a6a;
+  --color-faint: #7a8696;
+  --color-accent: #0d9488;
+  --color-accent-2: #3b5bdb;
+  --color-good: #15803d;
+  --color-ok: #4d7c0f;
+  --color-mid: #b45309;
+  --color-bad: #be123c;
+}
+:root[data-theme="light"] body { background-image: none; }
+:root[data-theme="light"] .btn-primary { color: #ffffff; }
+
 html, body {
   background: var(--color-bg);
   color: var(--color-fg);

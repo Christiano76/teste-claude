@@ -7,7 +7,7 @@
  * limitada e o motivo aparece em `flags`.
  */
 import { findGpuByName } from "../hardware/gpus";
-import { monitorQuality, pcPerformance } from "../hardware/performance";
+import { monitorQuality, pcPerformance, usageProfile } from "../hardware/performance";
 import { estimateImportTaxes } from "../pricing/import-tax";
 import { classifyCondition, CONDITION_LABEL } from "../market/condition";
 import { estimateMarket, type SamplePoint } from "../market/estimate";
@@ -30,7 +30,7 @@ export interface ScoreContext {
   /** Frete/prazo cotado para o CEP do usuário (sobrepõe os dados genéricos da oferta). */
   shippingQuote?: { cost: number | null; minDays: number | null; maxDays: number | null; source: string } | null;
   /** Amostra de anúncios para preço médio por comparáveis. */
-  sample?: { pc: SamplePoint[]; monitor: SamplePoint[]; kit?: SamplePoint[] };
+  sample?: { pc: SamplePoint[]; monitor: SamplePoint[]; kit?: SamplePoint[]; peca?: SamplePoint[] };
   /** Quantos vendedores diferentes usam a mesma foto. */
   imageSellers?: number;
 }
@@ -260,6 +260,25 @@ export function analyzeOffer(o: Offer, ctx: ScoreContext): Analysis {
     const up = sock === "AM5" ? 90 : sock === "LGA1851" ? 70 : sock === "AM4" ? 65 : sock === "LGA1700" ? 55 : sock === "LGA1200" ? 35 : sock ? 15 : 40;
     components.push({ key: "upgrade", label: "Potencial de upgrade", weight: 0, value: up, detail: sock ? `plataforma ${sock}` : "plataforma não identificada" });
     mq = ci;
+  } else if (o.category === "peca" && o.specs.part) {
+    const pt = o.specs.part;
+    let q: number;
+    let detail: string;
+    if (pt.kind === "gpu" || pt.kind === "cpu") {
+      q = pt.index == null ? 30 : Math.round(clamp((Math.log(Math.max(5, pt.index)) - Math.log(5)) / (Math.log(250) - Math.log(5)) * 100));
+      detail = pt.index == null ? "Modelo não reconhecido na base de desempenho." : `${pt.model}: índice ${pt.index} (${pt.kind === "gpu" ? "RTX 4060" : "Ryzen 5 5600"} = 100).`;
+    } else if (pt.kind === "ram" || pt.kind === "ssd") {
+      const c = pt.capacity ?? 0;
+      q = pt.kind === "ram" ? (c >= 32 ? 90 : c >= 16 ? 75 : c >= 8 ? 55 : 30) : (c >= 1000 ? 85 : c >= 480 ? 65 : c >= 240 ? 45 : 25);
+      if (pt.detail === "DDR3") q -= 20;
+      if (pt.detail === "NVMe") q += 10;
+      detail = pt.model ?? "Capacidade não informada.";
+    } else {
+      q = pt.model ? 60 : 30;
+      detail = pt.model ?? "Modelo não informado.";
+    }
+    components.push({ key: "qualidade", label: "Desempenho/capacidade da peça", weight: 0, value: Math.round(clamp(q)), detail });
+    mq = pt.index ?? pt.capacity ?? null;
   }
 
   components.push({ key: "loja", label: "Confiabilidade da loja", weight: 0, value: rep.score, detail: rep.basis });
@@ -271,23 +290,36 @@ export function analyzeOffer(o: Offer, ctx: ScoreContext): Analysis {
     ? { valor: 30, desempenho: 14, qualidade: 12, equilibrio: 7, loja: 10, garantia: 6, estoque: 5, entrega: 10, upgrade: 6 }
     : o.category === "kit"
       ? { valor: 34, qualidade: 22, upgrade: 10, loja: 12, garantia: 7, estoque: 5, entrega: 10 }
-      : { valor: 32, qualidade: 25, loja: 12, garantia: 9, estoque: 7, entrega: 15 };
-  let score = weighted(components, weights);
+      : o.category === "peca"
+        ? { valor: 40, qualidade: 15, loja: 15, garantia: 10, estoque: 8, entrega: 12 }
+        : { valor: 32, qualidade: 25, loja: 12, garantia: 9, estoque: 7, entrega: 15 };
+  let score = 0;
 
   const condition: Condition = o.condition ?? classifyCondition(o.title, o.specsText, null);
   // 2) Desconto real contra o preço médio de comparáveis no mesmo estado
-  const x = o.category === "pc" ? performance?.gamingIndex ?? null : mq;
-  const sample = ctx.sample ? (o.category === "pc" ? ctx.sample.pc : o.category === "kit" ? ctx.sample.kit ?? [] : ctx.sample.monitor) : [];
+  const partKey = o.specs.part?.model ? `${o.specs.part.kind}:${o.specs.part.model.toLowerCase()}` : undefined;
+  const x = o.category === "pc" ? performance?.gamingIndex ?? null : o.category === "peca" ? (partKey ? 1 : null) : mq;
+  const sample = ctx.sample ? (o.category === "pc" ? ctx.sample.pc : o.category === "kit" ? ctx.sample.kit ?? [] : o.category === "peca" ? ctx.sample.peca ?? [] : ctx.sample.monitor) : [];
+  // classificados (OLX/Enjoei) sem estado informado: comparados com o preço de USADOS (dito ao usuário na base do cálculo)
+  const classifiedUnknown = condition === "nao-informado" && /^brave-(olx|enjoei)$/.test(o.source);
   const market = estimateMarket({
     id: o.id, category: o.category, x, kit: !!o.specs.pc?.includesMonitor,
-    comp: o.category === "kit" ? `${o.specs.pc?.motherboard ? "placa" : "-"}|${o.specs.pc?.ramGb ? "ram" : "-"}|${o.specs.pc?.storage.length ? "ssd" : "-"}` : undefined, res: o.specs.monitor?.resolutionLabel, hz: o.specs.monitor?.refreshHz,
-    panel: o.specs.monitor?.panel, cpu: o.specs.pc?.cpu?.index ?? null, cond: condition, total: cost.total, sample, curve: o.category === "pc" ? ctx.pcCurve : o.category === "kit" ? ctx.kitCurve ?? REFERENCE.kit : ctx.monitorCurve, kitExtra,
+    comp: o.category === "peca" ? partKey : o.category === "kit" ? `${o.specs.pc?.motherboard ? "placa" : "-"}|${o.specs.pc?.ramGb ? "ram" : "-"}|${o.specs.pc?.storage.length ? "ssd" : "-"}` : undefined, res: o.specs.monitor?.resolutionLabel, hz: o.specs.monitor?.refreshHz,
+    panel: o.specs.monitor?.panel, cpu: o.specs.pc?.cpu?.index ?? null, cond: classifiedUnknown ? "usado" : condition, total: cost.total, sample, curve: o.category === "pc" ? ctx.pcCurve : o.category === "kit" ? ctx.kitCurve ?? REFERENCE.kit : o.category === "peca" ? REFERENCE.peca : ctx.monitorCurve, kitExtra,
   });
+  if (o.category === "peca") {
+    components.unshift(market.newPrice != null
+      ? { key: "valor", label: "Custo-benefício", weight: 0, value: Math.round(valueScore(market.newPrice * (market.price! / market.newPrice), cost.total)), detail: `Preço final R$ ${cost.total.toFixed(0)} vs. ~R$ ${market.price} pela mesma peça (${market.basis}).` }
+      : { key: "valor", label: "Custo-benefício", weight: 0, value: 45, detail: "Poucos anúncios do mesmo modelo para comparar." });
+  }
+  score = weighted(components, weights);
+  if (classifiedUnknown && market.basis) market.basis += " (estado não informado em classificado: comparado como usado)";
   // Sinais de alerta
   // Preço de referência para golpe: o de anúncios comparáveis (no mesmo estado) quando houver; senão a curva
-  const refPrice = market.comparables > 0 && market.price != null ? market.price : expected;
+  const refPrice = market.comparables > 0 && market.price != null ? market.price : o.category === "pc" && o.specs.pc?.cpu?.index == null ? null : expected;
   flags.push(...detectSuspicious({ offer: o, expectedPrice: refPrice, totalCost: cost.total }));
-  const suspicious = flags.some((f) => f.level === "danger" && ["too-cheap", "keyword"].includes(f.code));
+  const suspicious = flags.some((f) => f.level === "danger" && ["too-cheap", "keyword", "defect"].includes(f.code));
+  if (o.verification === "indice-busca") flags.push({ level: "info", code: "unverified", message: `Anúncio encontrado via buscador: preço do índice (${o.priceSource ?? "não confirmado"}), estoque e frete não verificados.` });
   if (suspicious) caps.push(39);
   if (flags.some((f) => f.code === "psu-weak")) caps.push(55);
   if (o.available === false) caps.push(30);
@@ -337,7 +369,7 @@ export function analyzeOffer(o: Offer, ctx: ScoreContext): Analysis {
   if (market.discount != null && market.discount > 0.55) { conf -= 20; reasons.push(`Preço ${Math.round(market.discount * 100)}% abaixo do mercado: descontos extremos exigem confirmar o produto e o vendedor.`); }
   if ((ctx.imageSellers ?? 0) >= 3) { conf -= o.sellerType === "pessoa-fisica" ? 15 : 5; reasons.push(`A mesma foto aparece em anúncios de ${ctx.imageSellers} vendedores diferentes (imagem genérica ou copiada).`); }
   if (condition !== "novo" && warrantyMonths(o.warrantyText).months == null) { conf -= 3; reasons.push("Item não novo sem garantia informada."); }
-  if (o.available !== true) { conf -= 10; reasons.push("Disponibilidade não confirmada."); }
+  if (o.available !== true) { conf -= 10; reasons.push(o.verification === "indice-busca" ? "Anúncio encontrado via buscador: preço, disponibilidade e frete precisam ser confirmados no anúncio." : "Disponibilidade não confirmada."); }
   if (o.protection) { conf += 4; reasons.push(`Proteção ao comprador: ${o.protection}.`); }
   else if (o.sellerType === "pessoa-fisica") { conf -= 6; reasons.push("Sem proteção ao comprador informada pela plataforma."); }
   conf = Math.round(clamp(conf));
@@ -345,8 +377,10 @@ export function analyzeOffer(o: Offer, ctx: ScoreContext): Analysis {
   let level: RiskLevel;
   const insufficient = (o.category === "pc" && (performance?.gamingIndex == null || critical.length >= 2)) || (o.category === "monitor" && (!o.specs.monitor?.resolutionLabel || !o.specs.monitor?.refreshHz));
   // alto risco exige sinal concreto (golpe/pagamento por fora/preço absurdo) ou confiança muito baixa
-  if (dangers.length || conf < 25) level = "alto";
+  // alto risco = sinal concreto (golpe, pagamento por fora, preço absurdo, defeito); falta de dados = insuficiente
+  if (dangers.length) level = "alto";
   else if (insufficient) level = "insuficiente";
+  else if (conf < 25) level = "alto";
   else if (warns.length >= 1 || conf < 55) level = "atencao";
   else level = "baixo";
   if (level === "baixo") reasons.push("Nenhum sinal de risco encontrado nos dados disponíveis — isso não garante que o anúncio seja seguro.");
@@ -375,6 +409,8 @@ export function analyzeOffer(o: Offer, ctx: ScoreContext): Analysis {
     priceInsight: ctx.priceInsight,
     suspicious,
     delivery,
+    usage: o.category === "pc" && o.specs.pc ? usageProfile(o.specs.pc) : null,
+    verification: o.verification,
     condition,
     market,
     risk: { level, reasons },
@@ -394,7 +430,8 @@ export { CONDITION_LABEL };
  * sem confirmação da fonte, fica "nao-confirmado".
  */
 export function deliveryInfo(o: Offer, buyerUf: string | null): Analysis["delivery"] {
-  const base = { program: o.shipProgram, protection: o.protection, pickup: o.pickup };
+  const sellerUf0 = o.sellerLocation?.toUpperCase().match(/\b([A-Z]{2})$/)?.[1] ?? null;
+  const base = { program: o.shipProgram, protection: o.protection, pickup: o.pickup, nearBuyer: !!(buyerUf && sellerUf0 && sellerUf0 === buyerUf.toUpperCase()) };
   if (o.shipAvailable === true) {
     if (o.shipScope === "local") {
       const seller = o.sellerLocation?.toUpperCase().match(/\b[A-Z]{2}\b/)?.[0] ?? null;
@@ -406,5 +443,9 @@ export function deliveryInfo(o: Offer, buyerUf: string | null): Analysis["delive
   }
   if (o.pickup === true) return { ...base, mode: "retirada", deliverable: false, label: "Somente retirada presencial (envio não informado)." };
   if (o.shipAvailable === false) return { ...base, mode: "sem-envio", deliverable: false, label: "Vendedor não faz envio." };
-  return { ...base, mode: "nao-confirmado", deliverable: null, label: "Modalidade de envio não confirmada pela fonte." };
+  const sellerUf = o.sellerLocation?.toUpperCase().match(/\b([A-Z]{2})$/)?.[1] ?? null;
+  if (buyerUf && sellerUf && sellerUf === buyerUf.toUpperCase()) {
+    return { ...base, mode: "nao-confirmado", deliverable: null, nearBuyer: true, label: `Frete não verificado — anúncio na sua região (${o.sellerLocation}); combine entrega ou retirada pela plataforma.` };
+  }
+  return { ...base, mode: "nao-confirmado", deliverable: null, label: "Frete não verificado." };
 }

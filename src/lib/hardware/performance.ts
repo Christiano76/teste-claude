@@ -101,3 +101,27 @@ export function pairingNotes(gamingIndex: number | null, m: MonitorSpecs): { fit
   if ((m.refreshHz ?? 60) >= 144 && gamingIndex < 50) notes.push("O PC dificilmente atinge a taxa de atualização do monitor em jogos atuais.");
   return { fit, notes };
 }
+
+export type UsageLevel = "adequado" | "limitado" | "nao-recomendado" | "nao-verificavel";
+export interface UsageRating { use: string; level: UsageLevel; note: string }
+
+/**
+ * Adequação por tipo de uso — ESTIMATIVA a partir dos índices relativos (benchmarks públicos agregados).
+ * Não é medição de FPS. Limites: CPU (Ryzen 5 5600 = 100), GPU (RTX 4060 = 100).
+ */
+export function usageProfile(pc: PcSpecs): UsageRating[] {
+  const cpu = pc.cpu?.index ?? null;
+  const gpu = pc.gpu?.index ?? null;
+  const ram = pc.ramGb;
+  const ssd = pc.storage.some((s) => s.type !== "hdd");
+  const out: UsageRating[] = [];
+  const rate = (use: string, ok: boolean | null, limited: boolean, note: string) =>
+    out.push({ use, level: ok == null ? "nao-verificavel" : ok ? (limited ? "limitado" : "adequado") : "nao-recomendado", note });
+
+  rate("Estudos e navegação", cpu == null ? null : cpu >= 22 && (ram ?? 4) >= 4, !ssd || (ram ?? 0) < 8, !ssd ? "HD mecânico deixa o sistema lento; um SSD resolve." : (ram ?? 0) < 8 ? "Com menos de 8 GB, muitas abas pesam." : "Folga para navegador, documentos e vídeo.");
+  rate("Programação", cpu == null ? null : cpu >= 40 && (ram ?? 0) >= 8, (ram ?? 0) < 16 || (cpu ?? 0) < 70, (ram ?? 0) < 16 ? "16 GB de RAM ajudam com IDE, navegador e containers." : "Processador e memória confortáveis para compilar e rodar ferramentas.");
+  rate("Jogos leves", gpu == null || cpu == null ? null : gpu >= 6 && cpu >= 35, (gpu ?? 0) < 15, "Ex.: Minecraft, LoL, jogos indie, em configurações baixas a médias.");
+  rate("Jogos competitivos", gpu == null || cpu == null ? null : gpu >= 25 && cpu >= 60 && (ram ?? 0) >= 8, (gpu ?? 0) < 45 || (cpu ?? 0) < 85 || (ram ?? 0) < 16, "Ex.: CS2, Valorant, Fortnite em 1080p; exigem processador forte para alto FPS.");
+  rate("Jogos exigentes", gpu == null || cpu == null ? null : gpu >= 70 && cpu >= 85 && (ram ?? 0) >= 16, (gpu ?? 0) < 100, "Lançamentos AAA em 1080p; abaixo da RTX 4060 (índice 100) exige qualidade média/baixa.");
+  return out;
+}

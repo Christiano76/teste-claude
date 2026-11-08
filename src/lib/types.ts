@@ -6,8 +6,11 @@
  */
 
 /** pc = computador completo; monitor; kit = kit de hardware (processador + placa-mãe ± memória). */
-export type Category = "pc" | "monitor" | "kit";
-export type SearchMode = "pc" | "pc-monitor" | "monitor" | "kit" | "garimpo-entrega";
+export type Category = "pc" | "monitor" | "kit" | "peca";
+export type PartKind = "gpu" | "cpu" | "ram" | "ssd" | "placa-mae" | "fonte";
+/** api = preço confirmado na fonte; indice-busca = dado do índice de um buscador (não confirmado). */
+export type Verification = "api" | "indice-busca";
+export type SearchMode = "pc" | "pc-monitor" | "monitor" | "kit" | "peca" | "garimpo-entrega";
 export type Origin = "BR" | "INTL";
 /** Estado de conservação (6 classes). */
 export type Condition = "novo" | "seminovo" | "usado" | "recondicionado" | "mostruario" | "nao-informado";
@@ -64,6 +67,13 @@ export interface RawOffer {
   shipProgram: string | null;
   /** Proteção ao comprador da plataforma (ex.: "Compra Garantida", "Garantia OLX"). */
   protection: string | null;
+  verification: Verification;
+  /** Origem do preço (ex.: "dados estruturados do anúncio indexados pela Brave"). */
+  priceSource: string | null;
+  /** Quando o buscador indexou a página (só para verification = indice-busca). */
+  indexedAt: string | null;
+  /** Plataforma de origem (OLX, Mercado Livre, Amazon...). */
+  platform: string | null;
   brand: string | null;
   categoryHint: Category | null;
   /** Texto extra com especificações (descrição/ficha técnica). */
@@ -128,8 +138,19 @@ export interface PcSpecs {
   includesPeripherals: boolean;
 }
 
+export interface PartSpecs {
+  kind: PartKind;
+  model: string | null;
+  /** Índice de desempenho (GPU: RTX 4060 = 100; CPU: Ryzen 5 5600 = 100). */
+  index: number | null;
+  /** Capacidade (RAM/SSD em GB) ou potência (fonte, W). */
+  capacity: number | null;
+  detail: string | null;
+}
+
 export interface ParsedSpecs {
   category: Category;
+  part?: PartSpecs | null;
   pc: PcSpecs | null;
   monitor: MonitorSpecs | null;
   /** Campos que o parser não conseguiu identificar. */
@@ -198,7 +219,12 @@ export interface Analysis {
     program: string | null;
     protection: string | null;
     pickup: boolean | null;
+    /** Vendedor na mesma UF do comprador (retirada/entrega local possível — a combinar). */
+    nearBuyer?: boolean;
   };
+  /** Adequação por uso (estimativa) — só para PCs. */
+  usage: { use: string; level: "adequado" | "limitado" | "nao-recomendado" | "nao-verificavel"; note: string }[] | null;
+  verification: Verification;
   condition: Condition;
   market: MarketEstimate;
   risk: { level: RiskLevel; reasons: string[] };

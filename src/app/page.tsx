@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { CepInput } from "@/components/CepInput";
+import { HomeSearch } from "@/components/HomeSearch";
 import { HomeStats } from "@/components/HomeStats";
 
 const MODES = [
-  { href: "/buscar/pc", step: "01", title: "Procurar PC Gamer", text: "PCs completos prontos para jogar. Identificamos CPU, GPU, RAM, armazenamento e fonte, estimamos o desempenho e apontamos peças desproporcionais.", icon: "pc" },
-  { href: "/buscar/pc-monitor", step: "02", title: "PC Gamer + Monitor", text: "Kits e combinações compradas separadamente. Somamos o custo final e mostramos se comprar separado compensa mais que o kit.", icon: "combo" },
-  { href: "/buscar/monitor", step: "03", title: "Procurar Monitor", text: "Resolução, tamanho, painel, frequência, tempo de resposta e conexões comparados contra o preço de mercado.", icon: "monitor" },
+  { href: "/buscar/pc", step: "MODO 1", title: "PC completo", text: "Informe o orçamento (ex.: R$ 500). Entram PCs usados, antigos, de escritório, gamers e recondicionados — de lojas e de pessoas físicas.", icon: "pc" },
+  { href: "/buscar/pc-monitor", step: "MODO 2", title: "PC + monitor", text: "Kits e combinações de anúncios separados dentro do orçamento total, com frete quando conhecido.", icon: "combo" },
+  { href: "/buscar/monitor", step: "MODO 3", title: "Apenas monitor", text: "Resolução, tamanho, frequência, painel e conexões — os mais baratos que atendem aos seus requisitos.", icon: "monitor" },
 ];
 
 function Icon({ kind }: { kind: string }) {
@@ -19,15 +20,16 @@ export default function Home() {
   return (
     <div className="pt-10 sm:pt-16 space-y-14">
       <section className="max-w-3xl">
-        <span className="chip !text-accent !border-accent/30 mb-5">Minerador de ofertas · entrega no Brasil</span>
-        <h1 className="text-3xl sm:text-5xl font-bold tracking-tight leading-[1.08]">
-          Não o mais barato. <span className="bg-gradient-to-r from-accent to-accent-2 bg-clip-text text-transparent">O que realmente vale a pena.</span>
+        <span className="chip !text-accent !border-accent/30 mb-5">PC Hunter · Garimpo inteligente de computadores</span>
+        <h1 className="text-3xl sm:text-5xl font-bold tracking-tight leading-[1.08] text-balance">
+          Garimpe seu próximo PC <span className="bg-gradient-to-r from-accent to-accent-2 bg-clip-text text-transparent">pelo menor preço possível.</span>
         </h1>
         <p className="mt-5 text-muted text-base sm:text-lg leading-relaxed">
-          O PC Hunter coleta ofertas reais, calcula o custo final com frete e impostos, estima o desempenho em jogos e dá uma nota de 0 a 100 para cada oportunidade.
+          Anúncios reais de lojas, marketplaces e classificados — com custo total, estado de conservação, desempenho estimado e alertas de risco. Cada resultado diz se o preço e o frete foram confirmados.
         </p>
-        <div className="mt-6 flex flex-col sm:flex-row sm:items-center gap-3">
-          <span className="text-sm text-muted">Informe seu CEP para personalizar frete e impostos:</span>
+        <div className="mt-6"><HomeSearch /></div>
+        <div className="mt-4 flex flex-col sm:flex-row sm:items-center gap-3">
+          <span className="text-sm text-muted">CEP de entrega:</span>
           <CepInput />
         </div>
       </section>

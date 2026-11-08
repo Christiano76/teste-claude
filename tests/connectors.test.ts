@@ -124,7 +124,9 @@ describe("plataformas sem integração autorizada", () => {
     expect(active).not.toContain("olx");
     expect(active).not.toContain("facebook");
     expect(active).not.toContain("enjoei");
-    expect(CONNECTORS.slice(0, 3).map((c) => c.id)).toEqual(["olx", "mercadolivre", "facebook"]);
+    // OLX/Enjoei são consultados pelo índice da Brave (quando a chave existe), nunca pela integração direta
+    expect(CONNECTORS.map((c) => c.id)).toEqual(expect.arrayContaining(["brave-olx", "brave-enjoei", "brave-mercadolivre", "olx", "facebook", "enjoei"]));
+    expect(CONNECTORS.find((c) => c.id === "brave-olx")?.kind).toBe("search-index");
   });
 });
 

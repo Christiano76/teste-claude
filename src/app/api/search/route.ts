@@ -4,7 +4,8 @@ import { search } from "@/lib/search/service";
 
 const num = z.coerce.number().finite().nonnegative().optional();
 const schema = z.object({
-  mode: z.enum(["pc", "pc-monitor", "monitor", "kit", "garimpo-entrega"]),
+  mode: z.enum(["pc", "pc-monitor", "monitor", "kit", "peca", "garimpo-entrega"]),
+  confirmed: z.enum(["1", "true"]).optional(),
   entrega: z.enum(["entrega", "ambos", "retirada"]).optional(),
   tier: z.enum(["pc-500", "pc-700", "pc-1000", "monitor-200", "kit-barato"]).optional(),
   q: z.string().max(120).optional(),
@@ -25,7 +26,7 @@ const schema = z.object({
   minScore: num,
   kit: z.enum(["only", "exclude"]).optional(),
   unconfirmed: z.enum(["1", "true"]).optional(),
-  sort: z.enum(["score", "price", "performance", "delivery", "discount", "value"]).optional(),
+  sort: z.enum(["score", "price", "performance", "delivery", "discount", "value", "entrega"]).optional(),
   garimpo: z.enum(["1", "true"]).optional(),
   cond: z.string().max(120).optional(),
   uf: z.string().max(120).optional(),
@@ -64,6 +65,7 @@ export async function GET(req: Request) {
       includeUnconfirmed: !!p.unconfirmed,
       sort: p.sort,
       garimpo: !!p.garimpo,
+      onlyConfirmed: !!p.confirmed,
       deliveryMode: p.entrega,
       tier: p.tier,
       conditions: p.cond?.split(",").filter(Boolean),

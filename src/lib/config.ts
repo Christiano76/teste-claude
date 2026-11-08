@@ -48,4 +48,15 @@ export const config = {
     from: env("ALERT_EMAIL_FROM") ?? "PC Hunter <alertas@example.com>",
   },
   appUrl: env("APP_URL") ?? "http://localhost:3000",
+  brave: {
+    /** Chave da Brave Search API — só no servidor (.env.local / variáveis da hospedagem). */
+    apiKey: env("BRAVE_SEARCH_API_KEY"),
+    /** Validade do cache de respostas (h). */
+    cacheHours: Number(env("BRAVE_CACHE_HOURS") ?? 12),
+    /** Máximo de consultas à Brave por busca do usuário (controle de custo). */
+    maxQueriesPerSearch: Number(env("BRAVE_MAX_QUERIES_PER_SEARCH") ?? 40),
+    /** Requisições por segundo (respeita o limite do plano). */
+    rps: Number(env("BRAVE_RPS") ?? 5),
+  },
+  defaultCep: env("DEFAULT_CEP") ?? null,
 };

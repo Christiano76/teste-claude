@@ -1,4 +1,6 @@
-# PC Hunter — buscador inteligente de PCs gamer e monitores
+# PC Hunter — Garimpo Inteligente de Computadores
+
+> **Garimpe seu próximo PC pelo menor preço possível.** Busca em tempo real (Brave Search API + APIs/JSON das lojas) em lojas, marketplaces e classificados: PCs completos por orçamento, PC + monitor, monitores e peças — novos, usados, seminovos e recondicionados. Relatório de integrações e testes: **[docs/RELATORIO-INTEGRACOES.md](docs/RELATORIO-INTEGRACOES.md)**.
 
 O PC Hunter coleta ofertas **reais** de PCs gamer e monitores com entrega para o Brasil e analisa se elas **valem a pena**. Ele não procura só o menor preço: calcula o custo final, estima o desempenho em jogos, avalia a qualidade das peças, confere a reputação da loja e dá uma **nota de 0 a 100** para cada oferta.
 
@@ -119,6 +121,14 @@ python3 scripts/snapshot-images.py && python3 scripts/snapshot-shrink.py   # min
 # publique snapshot/index.html com snapshot/data.json e snapshot/img.json
 ```
 
+## Configuração da Brave Search API
+
+1. Crie uma chave em https://api-dashboard.search.brave.com.
+2. Coloque em `.env.local` (local) ou nas variáveis de ambiente da Vercel: `BRAVE_SEARCH_API_KEY=...`. **Nunca** em código, no frontend ou no GitHub (`.env*` está no `.gitignore`).
+3. Opcional: `BRAVE_CACHE_HOURS` (padrão 12), `BRAVE_RPS` (padrão 5), `DEFAULT_CEP` (padrão 71572811).
+
+Sem a chave, o sistema continua funcionando só com as fontes diretas (KaBuM!), e a página de fontes mostra a Brave como "requer credenciais".
+
 ## Como rodar
 
 ```bash
@@ -127,7 +137,7 @@ cp .env.example .env.local        # ajuste DATABASE_URL
 npm run db:migrate                # cria as tabelas e cadastra as lojas
 npm run refresh -- 3              # primeira coleta (3 páginas por consulta)
 npm run dev                       # http://localhost:3000
-npm test                          # 65 testes
+npm test                          # 80 testes
 npm run build && npm start
 ```
 
@@ -137,7 +147,7 @@ Atrás de um proxy HTTP corporativo, rode com `NODE_USE_ENV_PROXY=1` (Node ≥ 2
 
 1. Crie um projeto no Supabase e copie a connection string (pooler) para `DATABASE_URL`, com `DATABASE_SSL=true`.
 2. Rode `npm run db:migrate` apontando para o Supabase. As tabelas de usuário ficam com RLS ativado e sem políticas: só o backend acessa.
-3. Na Vercel, configure as variáveis de `.env.example`, incluindo `CRON_SECRET`. O `vercel.json` agenda `/api/cron/refresh` a cada 3 h. Cada execução respeita o limite de tempo da função (`maxDuration = 300`; planos com limite menor usam o que o plano permite). Para coletas maiores, rode `npm run refresh` em outro agendador (GitHub Actions, VPS).
+3. Na Vercel (Project → Settings → Environment Variables), configure as variáveis de `.env.example`: `DATABASE_URL`, `DATABASE_SSL=true`, `BRAVE_SEARCH_API_KEY`, `CRON_SECRET`, `DEFAULT_CEP`. O `vercel.json` agenda `/api/cron/refresh` a cada 3 h. Cada execução respeita o limite de tempo da função (`maxDuration = 300`; planos com limite menor usam o que o plano permite). Para coletas maiores, rode `npm run refresh` em outro agendador (GitHub Actions, VPS).
 
 ## Segurança e privacidade
 

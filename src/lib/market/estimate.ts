@@ -31,7 +31,7 @@ function median(v: number[]): number {
 }
 
 export function estimateMarket(args: {
-  id: number; category: "pc" | "monitor" | "kit"; x: number | null; kit: boolean; comp?: string; cpu?: number | null; res?: string | null; hz?: number | null; panel?: string | null;
+  id: number; category: "pc" | "monitor" | "kit" | "peca"; x: number | null; kit: boolean; comp?: string; cpu?: number | null; res?: string | null; hz?: number | null; panel?: string | null;
   cond: Condition; total: number; sample: SamplePoint[]; curve: MarketCurve; kitExtra: number;
 }): MarketEstimate {
   const { id, x, cond, total, sample } = args;
@@ -39,7 +39,15 @@ export function estimateMarket(args: {
   const pool = sample.filter((p) => p.id !== id && p.cond === "novo");
   let comps: SamplePoint[] = [];
   let basis = "";
-  if (args.category === "kit") {
+  // PC sem modelo exato de processador: comparar seria chutar (um "i3" pode ser de 2011 ou de 2023)
+  if (args.category === "pc" && args.cpu == null) {
+    return { price: null, newPrice: null, comparables: 0, basis: "Modelo exato do processador não informado — sem base segura para comparar preço.", discount: null, savings: null };
+  }
+  if (args.category === "peca") {
+    // peça: mesmo tipo e mesmo modelo (ex.: "gpu:rtx 3060")
+    comps = pool.filter((p) => p.comp === args.comp);
+    if (comps.length >= 4) basis = `mediana de ${comps.length} peças novas do mesmo modelo`;
+  } else if (args.category === "kit") {
     // kit: processador de classe equivalente e mesma composição (com/sem memória)
     for (const tol of [0.15, 0.3]) {
       comps = pool.filter((p) => p.comp === args.comp && Math.abs(p.x - x) / x <= tol);
@@ -60,13 +68,15 @@ export function estimateMarket(args: {
       if (comps.length >= 5) basis = `mediana de ${comps.length} monitores novos de qualidade equivalente`;
     }
   }
-  const enough = args.category === "monitor" ? comps.length >= 4 : comps.length >= 5;
+  const enough = args.category === "monitor" || args.category === "peca" ? comps.length >= 4 : comps.length >= 5;
   let newPrice: number;
   if (enough) {
     newPrice = median(comps.map((c) => c.price));
     basis = `mediana (sem os 25% mais caros) de ${basis.replace(/^mediana de /, "")}`;
   }
-  else {
+  else if (args.category === "peca") {
+    return { price: null, newPrice: null, comparables: comps.length, basis: "Poucos anúncios do mesmo modelo para comparar.", discount: null, savings: null };
+  } else {
     newPrice = expectedPrice(args.curve, x) + args.kitExtra;
     basis = `curva de preço do mercado (${args.curve.source === "dados-coletados" ? `${args.curve.n} ofertas` : "referência"}) — poucos anúncios idênticos para comparar`;
     comps = [];

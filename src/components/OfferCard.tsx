@@ -56,12 +56,22 @@ export function OfferCard({ item, index = 0, favorite = false }: { item: Analyze
           <Mini label="Confiança" v={a.scores.confiabilidade} />
         </div>
         <div className="flex flex-wrap gap-1">
+          {o.verification === "api"
+            ? <span className="chip !text-good !border-good/40" title="Preço e estoque lidos diretamente da fonte">Preço confirmado</span>
+            : <span className="chip !text-mid !border-mid/40" title={o.priceSource ?? "Preço do índice do buscador"}>Preço não confirmado</span>}
           <span className={`chip ${a.condition === "novo" ? "" : "!text-accent-2 !border-accent-2/40"}`}>{CONDITION[a.condition]}</span>
           {a.delivery.protection && <span className="chip !text-good !border-good/40" title={a.delivery.protection}>Proteção ao comprador</span>}
           <span className="chip" style={{ color: RISK[a.risk.level][1], borderColor: "currentColor" }} title={a.risk.reasons.join(" ")}>{RISK[a.risk.level][0]}</span>
         </div>
         <Link href={`/oferta/${o.id}`} className="text-sm font-medium leading-snug line-clamp-2 hover:text-accent" title={o.title}>{o.title}</Link>
         <div className="flex flex-wrap gap-1">{specLine(item).slice(0, 6).map((s) => <span key={s} className="chip">{s}</span>)}</div>
+        {a.usage && (
+          <div className="flex flex-wrap gap-1" aria-label="Indicado para (estimativa)">
+            {a.usage.filter((u) => u.level === "adequado" || u.level === "limitado").map((u) => (
+              <span key={u.use} className={`chip ${u.level === "adequado" ? "!text-good !border-good/30" : "!text-mid !border-mid/30"}`} title={`${u.note} (estimativa)`}>{u.use}{u.level === "limitado" ? " (limitado)" : ""}</span>
+            ))}
+          </div>
+        )}
         {a.performance?.tierLabel && <p className="text-xs text-muted">{a.performance.tierLabel}</p>}
         <div className="mt-auto space-y-2">
           <div className="flex items-end justify-between gap-2">
@@ -78,9 +88,12 @@ export function OfferCard({ item, index = 0, favorite = false }: { item: Analyze
             <div className="flex justify-between gap-2"><span>Custo final</span><span className="num text-fg">{brl(a.cost.total)}{!a.cost.totalIsComplete && <span className="text-faint"> + frete</span>}</span></div>
             {a.cost.importTax != null && <div className="flex justify-between"><span>Impostos (est.)</span><span className="num">{brl((a.cost.importTax ?? 0) + (a.cost.icms ?? 0))}</span></div>}
             <div className="flex justify-between gap-2"><span>Envio</span><span className={`text-right ${a.delivery.deliverable === true ? "text-good" : a.delivery.deliverable === false ? "text-bad" : "text-faint"}`}>{a.delivery.mode === "envio-nacional" ? "nacional" : a.delivery.mode === "envio-local" ? "só local" : a.delivery.mode === "internacional" ? "internacional" : a.delivery.mode === "retirada" ? "só retirada" : a.delivery.mode === "sem-envio" ? "sem envio" : "não confirmado"}</span></div>
+            <div className="flex justify-between gap-2"><span>Frete</span><span className="text-right">{a.cost.shipping == null ? <span className="text-faint">Frete não verificado</span> : a.cost.shipping === 0 ? "grátis" : brl(a.cost.shipping, 2)}</span></div>
             <div className="flex justify-between gap-2"><span>Prazo</span><span className="text-right">{deliveryText(o)}</span></div>
             <div className="flex justify-between gap-2"><span>Local do vendedor</span><span>{o.sellerLocation ?? "não informado"}{o.pickup ? " · retirada" : ""}</span></div>
-            <div className="flex justify-between gap-2"><span>Verificado em</span><span className="num">{new Date(o.lastCheckedAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}</span></div>
+            <div className="flex justify-between gap-2"><span>{o.verification === "api" ? "Verificado em" : "Encontrado em"}</span><span className="num">{new Date(o.lastCheckedAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}</span></div>
+            {o.indexedAt && <div className="flex justify-between gap-2"><span>Indexado pelo buscador</span><span className="num">{new Date(o.indexedAt).toLocaleDateString("pt-BR")}</span></div>}
+            <div className="flex justify-between gap-2"><span>Origem</span><span className="text-right truncate">{o.platform ?? o.storeName}</span></div>
             <div className="flex justify-between gap-2"><span>Loja</span><span className="text-right truncate max-w-[65%]" title={a.storeReputation.basis}>{o.storeName}{o.sellerName && o.isMarketplace && o.sellerName !== o.storeName ? ` · ${o.sellerName}` : ""} · <span className={a.storeReputation.score >= 72 ? "text-good" : a.storeReputation.score >= 58 ? "text-mid" : "text-bad"}>{a.storeReputation.label}</span></span></div>
           </div>
           {warn.length > 0 && (
@@ -90,7 +103,7 @@ export function OfferCard({ item, index = 0, favorite = false }: { item: Analyze
           )}
           {item.alsoAt.length > 0 && <p className="text-[11px] text-faint">Mesma configuração em mais {item.alsoAt.length} oferta(s) a partir de {brl(Math.min(...item.alsoAt.map((x) => x.price)))}</p>}
           <div className="flex gap-2 pt-1">
-            <a href={o.url} target="_blank" rel="noopener noreferrer nofollow" className="btn btn-primary flex-1">Ver na loja</a>
+            <a href={o.url} target="_blank" rel="noopener noreferrer nofollow" className="btn btn-primary flex-1">Ver oferta</a>
             <Link href={`/oferta/${o.id}`} className="btn btn-ghost">Análise</Link>
           </div>
         </div>

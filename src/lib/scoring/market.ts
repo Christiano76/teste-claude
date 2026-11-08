@@ -11,13 +11,15 @@ export interface MarketCurve {
 }
 
 /** Curvas de referência (fallback), calibradas com preços típicos de 2025–2026 no Brasil. */
-export const REFERENCE: Record<"pc" | "monitor" | "kit", MarketCurve> = {
+export const REFERENCE: Record<"pc" | "monitor" | "kit" | "peca", MarketCurve> = {
   // preço ≈ e^a · x^b  → PC índice 100 ≈ R$ 4.000; índice 50 ≈ R$ 2.400; índice 200 ≈ R$ 8.000
   pc: { a: Math.log(4000) - 0.85 * Math.log(100), b: 0.85, n: 0, source: "referencia" },
   // monitor qualidade 60 ≈ R$ 750; 75 ≈ R$ 1.300; 90 ≈ R$ 2.600
   monitor: { a: Math.log(750) - 2.6 * Math.log(60), b: 2.6, n: 0, source: "referencia" },
   // kit (CPU + placa-mãe + RAM): CPU índice 100 ≈ R$ 1.300; índice 40 (i5 3ª geração) ≈ R$ 350
   kit: { a: Math.log(1300) - 1.43 * Math.log(100), b: 1.43, n: 0, source: "referencia" },
+  // peças não usam curva: só comparação com o mesmo modelo
+  peca: { a: 0, b: 1, n: 0, source: "referencia" },
 };
 
 export function expectedPrice(curve: MarketCurve, x: number): number {

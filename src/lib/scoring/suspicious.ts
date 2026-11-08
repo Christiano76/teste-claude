@@ -18,9 +18,16 @@ export interface SuspicionInput {
 
 export function detectSuspicious({ offer, expectedPrice, totalCost }: SuspicionInput): Flag[] {
   const flags: Flag[] = [];
-  for (const [re, msg] of BAD_WORDS) if (re.test(offer.title)) flags.push({ level: "danger", code: "keyword", message: msg });
+  // defeito: busca no título e no trecho do anúncio (equipamento com defeito nunca é apresentado como funcional)
+  const text = `${offer.title}\n${(offer.specsText ?? "").slice(0, 800)}`;
+  for (const [re, msg] of BAD_WORDS) {
+    const isDefect = msg.startsWith("Produto com defeito");
+    if (re.test(isDefect ? text : offer.title)) flags.push({ level: "danger", code: isDefect ? "defect" : "keyword", message: msg });
+  }
 
-  if (expectedPrice && totalCost < expectedPrice * 0.35) {
+  // itens baratos/antigos têm mercado de usados bem abaixo do novo: o alerta exige diferença maior
+  const tooCheap = expectedPrice && expectedPrice < 2000 ? 0.25 : 0.35;
+  if (expectedPrice && totalCost < expectedPrice * tooCheap) {
     flags.push({ level: "danger", code: "too-cheap", message: "Preço muito abaixo do mercado para esta configuração — possível golpe, erro no anúncio ou especificação enganosa." });
   } else if (expectedPrice && totalCost < expectedPrice * 0.55 && (offer.sellerRatingCount ?? 0) < 20 && offer.isMarketplace) {
     flags.push({ level: "warn", code: "cheap-unknown-seller", message: "Preço bem abaixo do mercado vendido por vendedor com pouco histórico. Confirme a reputação antes de comprar." });
@@ -45,7 +52,7 @@ export function detectSuspicious({ offer, expectedPrice, totalCost }: SuspicionI
   if (offer.condition && offer.condition !== "novo") flags.push({ level: "info", code: "condition", message: `Estado: ${CONDITION_LABEL[offer.condition]}.` });
   // pagamento fora da plataforma / contato direto
   const txt = `${offer.title}\n${offer.specsText ?? ""}`;
-  if (/(pix|dep[oó]sito|transfer[eê]ncia)\s*(direto|antecipad)|chama no (zap|whats)|whats\s*app|fora da plataforma|s[oó] (no|pelo) pix|pagamento antecipado/i.test(txt)) {
+  if (/(pix|dep[oó]sito|transfer[eê]ncia)\s*(direto|antecipad)|chama (no|na|pelo) (zap|whats)|(me )?chama no (zap|whats)|(contato|negocia[cç][aã]o|negociar) (s[oó] )?(pelo|no|via) (zap|whats)|fora da plataforma|s[oó] (no|pelo|via) pix|pagamento antecipado|pago antecipado/i.test(txt)) {
     flags.push({ level: "danger", code: "off-platform", message: "Anúncio sugere pagamento ou contato fora da plataforma — prática comum em golpes." });
   }
   // especificações inconsistentes: duas placas de vídeo diferentes citadas no título

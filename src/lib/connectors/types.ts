@@ -6,6 +6,10 @@ export interface SearchParams {
   query: string;
   page: number; // 1-based
   pageSize: number;
+  /** Orçamento máximo (ajuda as fontes de busca a priorizar anúncios baratos). */
+  maxPrice?: number;
+  /** UF do comprador (ex.: OLX regional). */
+  uf?: string | null;
 }
 
 export interface SearchPage {
@@ -34,7 +38,7 @@ export interface Connector {
   name: string;
   /** Lojas cobertas por este conector. */
   stores: string[];
-  kind: "public-json" | "official-api" | "affiliate-api" | "feed" | "classificados";
+  kind: "public-json" | "official-api" | "affiliate-api" | "feed" | "classificados" | "search-index";
   /** Evidência verificada do status (data e o que foi testado). */
   evidence?: string;
   status(): ConnectorStatus;
@@ -47,6 +51,8 @@ export interface Connector {
 
 export function defaultQuery(category: Category, q: string): string {
   const t = q.trim();
+  if (category === "peca") return t || "placa de video";
+  if (category === "kit") return t ? `kit upgrade ${t}` : "kit upgrade";
   if (category === "monitor") return t ? (/monitor/i.test(t) ? t : `monitor ${t}`) : "monitor gamer";
   return t ? (/\b(pc|computador|workstation|desktop)\b/i.test(t) ? t : `pc gamer ${t}`) : "pc gamer";
 }
@@ -56,7 +62,7 @@ export function emptyOffer(partial: Pick<RawOffer, "source" | "externalId" | "ti
     imageUrl: null, installmentPrice: null, listPrice: null, currency: "BRL", available: null, stockQty: null,
     sellerName: null, isMarketplace: null, sellerRating: null, sellerRatingCount: null, productRating: null,
     productRatingCount: null, warrantyText: null, freeShipping: null, shippingCost: null, delivery: null, origin: null,
-    taxesIncluded: null, condition: null, sellerType: null, pickup: null, shipAvailable: null, shipScope: null, shipProgram: null, protection: null, brand: null, categoryHint: null, specsText: null, sellerLocation: null,
+    taxesIncluded: null, condition: null, sellerType: null, pickup: null, shipAvailable: null, shipScope: null, shipProgram: null, protection: null, verification: "api", priceSource: null, indexedAt: null, platform: null, brand: null, categoryHint: null, specsText: null, sellerLocation: null,
     ...partial,
   };
 }

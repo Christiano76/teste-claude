@@ -15,20 +15,22 @@ import { findOffers, marketPoints, type OfferFilters } from "./repository";
 
 const curveCache = new Map<Category, { at: number; curve: MarketCurve }>();
 
-const sampleCache: { at: number; v: { pc: SamplePoint[]; monitor: SamplePoint[]; kit: SamplePoint[] } } | { at: 0; v: null } = { at: 0, v: null };
+const sampleCache: { at: number; v: { pc: SamplePoint[]; monitor: SamplePoint[]; kit: SamplePoint[]; peca: SamplePoint[] } } | { at: 0; v: null } = { at: 0, v: null };
 
 /** Amostra de anúncios ativos usada para o preço médio por comparáveis (cache de 10 min). */
-export async function marketSample(): Promise<{ pc: SamplePoint[]; monitor: SamplePoint[]; kit: SamplePoint[] }> {
+export async function marketSample(): Promise<{ pc: SamplePoint[]; monitor: SamplePoint[]; kit: SamplePoint[]; peca: SamplePoint[] }> {
   if (sampleCache.v && Date.now() - sampleCache.at < 10 * 60_000) return sampleCache.v;
   const rows = await query<{ id: string; category: Category; price: string; condition: Condition | null; specs: ParsedSpecs }>(
     `SELECT id, category, price, condition, specs FROM offers WHERE active AND available IS TRUE AND origin = 'BR' AND last_seen_at > now() - interval '7 days'`,
   );
-  const v = { pc: [] as SamplePoint[], monitor: [] as SamplePoint[], kit: [] as SamplePoint[] };
+  const v = { pc: [] as SamplePoint[], monitor: [] as SamplePoint[], kit: [] as SamplePoint[], peca: [] as SamplePoint[] };
   for (const r of rows) {
     const cond = (r.condition ?? "nao-informado") as Condition;
     if (r.category === "pc" && r.specs.pc) {
       const x = pcPerformance(r.specs.pc).gamingIndex;
       if (x != null && r.specs.pc.cpu?.index != null) v.pc.push({ id: Number(r.id), x, price: Number(r.price), cond, kit: r.specs.pc.includesMonitor, cpu: r.specs.pc.cpu.index });
+    } else if (r.category === "peca" && r.specs.part?.model) {
+      v.peca.push({ id: Number(r.id), x: 1, price: Number(r.price), cond, comp: `${r.specs.part.kind}:${r.specs.part.model.toLowerCase()}` });
     } else if (r.category === "kit" && r.specs.pc?.cpu?.index != null) {
       v.kit.push({ id: Number(r.id), x: r.specs.pc.cpu.index, price: Number(r.price), cond, kit: !!r.specs.pc.ramGb, comp: kitComposition(r.specs) });
     } else if (r.category === "monitor" && r.specs.monitor?.resolutionLabel) {
@@ -161,7 +163,9 @@ export function dedupe(items: AnalyzedOffer[]): AnalyzedOffer[] {
 export interface SearchRequest extends Omit<OfferFilters, "category"> {
   mode: SearchMode;
   cep?: string;
-  sort?: "score" | "price" | "performance" | "delivery" | "discount" | "value";
+  sort?: "score" | "price" | "performance" | "delivery" | "discount" | "value" | "entrega";
+  /** Só preço confirmado na fonte (exclui anúncios do índice de busca). */
+  onlyConfirmed?: boolean;
   /** GARIMPO EXTREMO: só anúncios bem abaixo do preço médio, sem risco alto e com dados suficientes. */
   garimpo?: boolean;
   /** Faixa do garimpo com entrega (pc-500, pc-700, pc-1000, monitor-200, kit-barato). */
@@ -195,6 +199,10 @@ export interface SearchResponse {
   tiers?: { id: string; label: string; count: number }[];
   /** true quando o CEP não foi informado: não dá para confirmar envio local. */
   needsCep?: boolean;
+  /** Anúncios com defeito ocultados. */
+  hiddenDefects?: number;
+  /** Quantos resultados têm preço confirmado na fonte × encontrados via buscador. */
+  counts?: { confirmed: number; indexed: number };
   facets: Facets;
   market: { pc: MarketCurve; monitor: MarketCurve };
   generatedAt: string;
@@ -214,6 +222,7 @@ function sortItems(items: AnalyzedOffer[], sort: SearchRequest["sort"]) {
   const days = (x: AnalyzedOffer) => x.offer.delivery?.maxDays ?? (x.offer.origin === "INTL" ? 99 : 50);
   items.sort((a, b) => {
     if (sort === "price") return a.analysis.cost.total - b.analysis.cost.total;
+    if (sort === "entrega") return deliveryRank(a) - deliveryRank(b) || verifRank(a) - verifRank(b) || a.analysis.cost.total - b.analysis.cost.total;
     if (sort === "performance") return perf(b) - perf(a) || b.analysis.score - a.analysis.score;
     if (sort === "delivery") return days(a) - days(b) || b.analysis.score - a.analysis.score;
     if (sort === "discount") return (b.analysis.market.discount ?? -9) - (a.analysis.market.discount ?? -9) || b.analysis.score - a.analysis.score;
@@ -222,10 +231,28 @@ function sortItems(items: AnalyzedOffer[], sort: SearchRequest["sort"]) {
   });
 }
 
+/** Prioridade de entrega: envio confirmado → mesma região → não verificado → sem envio. */
+function deliveryRank(a: AnalyzedOffer): number {
+  const d = a.analysis.delivery;
+  return d.deliverable === true ? 0 : d.nearBuyer ? 1 : d.deliverable == null ? 2 : 3;
+}
+const verifRank = (a: AnalyzedOffer) => (a.offer.verification === "api" ? 0 : 1);
+
+/** Ofertas com defeito ocultadas na última busca (contagem para o usuário). */
+let lastHiddenDefects = 0;
+
 async function searchCategory(category: Category, req: SearchRequest, location: UserLocation | null) {
-  const offers = await findOffers({ ...req, category, text: req.text, includesMonitor: category === "pc" ? req.includesMonitor : undefined });
-  const analyzed = dedupe(await analyzeOffers(offers, location));
-  return analyzed.filter((a) =>
+  const base = { ...req, category, text: req.text, includesMonitor: category === "pc" ? req.includesMonitor : undefined };
+  const [confirmed, indexed] = await Promise.all([
+    findOffers({ ...base, verification: "api" }),
+    req.onlyConfirmed ? Promise.resolve([]) : findOffers({ ...base, verification: "indice-busca", limit: 600 }),
+  ]);
+  const analyzed = dedupe(await analyzeOffers([...confirmed, ...indexed], location));
+  // equipamento com defeito nunca é apresentado como funcional
+  const defects = analyzed.filter((a) => a.analysis.flags.some((f) => f.code === "defect"));
+  lastHiddenDefects += defects.length;
+  return analyzed.filter((a) => !a.analysis.flags.some((f) => f.code === "defect")).filter((a) =>
+    (req.maxPrice == null || a.analysis.cost.total <= req.maxPrice) &&
     // "somente entrega": exclui o que não tem envio confirmado PARA o comprador (ex.: envio só local em outra UF)
     (req.deliveryMode !== "entrega" || a.analysis.delivery.deliverable === true) &&
     (req.minScore == null || a.analysis.score >= req.minScore) &&
@@ -265,13 +292,14 @@ export async function search(req: SearchRequest): Promise<SearchResponse> {
   const page = Math.max(1, req.page ?? 1);
   const pageSize = Math.min(60, Math.max(6, req.pageSize ?? 24));
   const categories: Category[] =
-    req.mode === "monitor" ? ["monitor"] : req.mode === "pc" ? ["pc"] : req.mode === "kit" ? ["kit"] : req.mode === "garimpo-entrega" ? ["pc", "monitor", "kit"] : ["pc", "monitor"];
+    req.mode === "monitor" ? ["monitor"] : req.mode === "pc" ? ["pc"] : req.mode === "kit" ? ["kit"] : req.mode === "peca" ? ["peca"] : req.mode === "garimpo-entrega" ? ["pc", "monitor", "kit"] : ["pc", "monitor"];
+  lastHiddenDefects = 0;
 
   // 1) coleta nas fontes (sob demanda, com cache)
   const sources: SourceRun[] = [];
   for (const c of categories) {
     const q = req.mode === "pc-monitor" && c === "monitor" ? "" : req.text ?? "";
-    sources.push(...(await collect(c, q, { force: req.refresh })));
+    sources.push(...(await collect(c, q, { force: req.refresh, maxPrice: req.maxPrice, uf: location?.uf ?? null })));
   }
 
   // 2) análise
@@ -293,7 +321,7 @@ export async function search(req: SearchRequest): Promise<SearchResponse> {
     results = [];
   } else {
     results = await searchCategory(categories[0], req, location);
-    sortItems(results, req.sort ?? (req.garimpo ? "discount" : "score"));
+    sortItems(results, req.sort ?? (req.garimpo ? "discount" : "entrega"));
   }
 
   const all = results.length ? results : [];
@@ -319,6 +347,11 @@ export async function search(req: SearchRequest): Promise<SearchResponse> {
     kitInsight,
     tiers,
     needsCep: !location,
+    hiddenDefects: lastHiddenDefects,
+    counts: {
+      confirmed: results.filter((r) => r.offer.verification === "api").length,
+      indexed: results.filter((r) => r.offer.verification === "indice-busca").length,
+    },
     facets,
     market: { pc: pcC, monitor: monC },
     generatedAt: new Date().toISOString(),

@@ -5,6 +5,7 @@
 import type { Category, GpuInfo, MonitorSpecs, ParsedSpecs, PcSpecs, PsuInfo, StorageInfo } from "../types";
 import { parseCpu } from "./cpus";
 import { IGPU_BY_CPU, findGpuByName, matchGpu } from "./gpus";
+import { classifyPart } from "./parts";
 
 export function stripHtml(html: string): string {
   return html
@@ -23,11 +24,16 @@ export function stripHtml(html: string): string {
 const MONITOR_WORDS = /\bmonitor\b/i;
 const PC_WORDS = /\b(pc|computador|desktop|cpu gamer|workstation|mini ?pc)\b/i;
 
-const ACCESSORY = /^(suporte|filtro|cabo|bra[cç]o|gabinete|fonte|placa[\s-]m[aã]e|placa de v[ií]deo|mem[oó]ria|ssd|hd\b|teclado|mouse|headset|cooler|water|pel[ií]cula|capa|adaptador|webcam|controle|cadeira|mesa|estabilizador|nobreak|processador|limpa|hub|dock|switch|roteador|caixa de som)/i;
+const ACCESSORY = /^(notebook|laptop|macbook|chromebook|ultrabook|tablet|celular|smartphone|suporte|filtro|cabo|bra[cç]o|gabinete|fonte|placa[\s-]m[aã]e|placa de v[ií]deo|mem[oó]ria|ssd|hd\b|teclado|mouse|headset|cooler|water|pel[ií]cula|capa|adaptador|webcam|controle|cadeira|mesa|estabilizador|nobreak|processador|limpa|hub|dock|switch|roteador|caixa de som)/i;
 
 /** Acessórios e peças avulsas que aparecem em buscas por "pc gamer"/"monitor". */
 export function isAccessory(title: string): boolean {
   const t = title.trim().toLowerCase();
+  if (classifyPart(title)) return false; // peça avulsa reconhecida (GPU, CPU, RAM, SSD, placa-mãe, fonte)
+  // notebooks e tablets não são PCs de mesa (o PC Hunter não os mistura com computadores completos)
+  if (/\b(notebook|laptop|macbook|chromebook|ultrabook|netbook)\b/.test(t)) return true;
+  // "computador SEM processador/memória/HD" não é PC completo (é gabinete/peças)
+  if (/\b(pc|computador|cpu|desktop|gabinete)\b/.test(t) && /\b(sem|s\/)\s*(processador|cpu\b|mem[oó]ria|placa[\s-]m[aã]e)/.test(t) && !/^kit\b/.test(t)) return true;
   if (ACCESSORY.test(t)) return true;
   if (/\b(para|p\/)\s*monitor\b/.test(t) && !/\bmonitor\s+(gamer|led|ips)/.test(t.split(/para|p\//)[0])) return true;
   return false;
@@ -37,6 +43,7 @@ export function detectCategory(title: string, hint: Category | null): Category {
   if (hint) return hint;
   const t = title.toLowerCase();
   if (isHardwareKit(t)) return "kit";
+  if (classifyPart(title)) return "peca";
   if (MONITOR_WORDS.test(t) && !PC_WORDS.test(t.split("monitor")[0])) return "monitor";
   return "pc";
 }
@@ -262,6 +269,13 @@ export function parsePc(title: string, extraText: string | null): PcSpecs {
 
 export function parseSpecs(title: string, extraText: string | null, hint: Category | null): ParsedSpecs {
   const category = detectCategory(title, hint);
+  if (category === "peca") {
+    const part = classifyPart(title);
+    const missing: string[] = [];
+    if (!part) missing.push("tipo de peça");
+    else if (!part.model) missing.push("modelo da peça");
+    return { category, pc: null, monitor: null, part, missing };
+  }
   if (category === "monitor") {
     const monitor = parseMonitor(`${title}\n${extraText ?? ""}`);
     const missing: string[] = [];
@@ -311,6 +325,7 @@ export function canonicalKey(category: Category, specs: ParsedSpecs, title: stri
     if (model && brand) return `mon:${brand.toLowerCase()}:${model.toLowerCase()}`;
     return `mon:${(brand ?? "?").toLowerCase()}:${m.sizeIn}:${m.resolutionLabel}:${m.refreshHz}:${m.panel}`;
   }
+  if (category === "peca") return `peca:${specs.part?.kind ?? "?"}:${specs.part?.model ?? title.toLowerCase().slice(0, 40)}`.toLowerCase();
   const p = specs.pc;
   if (category === "kit") return `kit:${p?.cpu?.model ?? "?"}:${p?.motherboard?.chipset ?? "?"}:${p?.ramGb ?? "?"}`.toLowerCase();
   const sto = p?.storage.map((s) => `${s.type}${s.gb}`).join("+") ?? "";

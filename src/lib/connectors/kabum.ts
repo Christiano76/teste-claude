@@ -56,6 +56,7 @@ function categoryOf(menu: string): Category | null {
   if (m.includes("/monitores")) return "monitor";
   if (m.includes("notebook") || m.includes("tablet")) return null;
   if (m.includes("kit hardware") || m.includes("kit upgrade")) return "kit";
+  if (m.startsWith("hardware/") && /(placas? de v[ií]deo|processadores|mem[oó]ria|ssd|placas?-m[aã]e|fontes)/.test(m)) return "peca";
   if (m.startsWith("computadores/pc") || m.includes("/pc gamer") || m.includes("computadores/computadores") || m.includes("desktop") || m.includes("workstation")) return "pc";
   return null;
 }
@@ -123,7 +124,7 @@ export const kabum: Connector = {
     };
   },
   async search(p: SearchParams): Promise<SearchPage> {
-    const q = p.category === "kit" ? (p.query.trim() ? `kit upgrade ${p.query}` : "kit upgrade") : defaultQuery(p.category, p.query);
+    const q = defaultQuery(p.category, p.query);
     const url = `${BASE}/products?query=${encodeURIComponent(q)}&page_size=${p.pageSize}&page_number=${p.page}&sort=most_searched`;
     const d = await fetchJson<{ data: KabumItem[]; meta: { total_pages_count: number; total_items_count: number } }>(url, { minIntervalMs: 1200 });
     const offers = d.data.map((it) => mapKabumItem(it, p.category)).filter((x): x is RawOffer => !!x);

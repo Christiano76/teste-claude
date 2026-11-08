@@ -6,7 +6,7 @@
  */
 import { config } from "../config";
 import { classifyCondition } from "../market/condition";
-import type { RawOffer } from "../types";
+import type { Category, RawOffer } from "../types";
 import { HttpError, fetchJson, fetchWithPolicy } from "../util/http";
 import { type Connector, defaultQuery, emptyOffer, type SearchPage, type SearchParams, type ShippingQuote } from "./types";
 
@@ -52,7 +52,7 @@ function attr(it: MlItem, id: string): string | null {
   return it.attributes?.find((a) => a.id === id)?.value_name ?? null;
 }
 
-export function mapMlItem(it: MlItem, cat: "pc" | "monitor" | "kit"): RawOffer {
+export function mapMlItem(it: MlItem, cat: Category): RawOffer {
   const rep = it.seller?.seller_reputation;
   const positive = rep?.transactions?.ratings?.positive;
   const intl = it.international_delivery_mode && it.international_delivery_mode !== "none" || it.tags?.includes("cbt_item");

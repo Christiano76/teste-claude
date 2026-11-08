@@ -14,6 +14,12 @@ export function Providers({ children }: { children: React.ReactNode }) {
       const raw = localStorage.getItem(KEY);
       // eslint-disable-next-line react-hooks/set-state-in-effect
       if (raw) setLocation(JSON.parse(raw));
+      else {
+        // CEP padrão de entrega (pode ser alterado no topo)
+        fetch("/api/cep/71572811").then((r) => (r.ok ? r.json() : null)).then((d) => {
+          if (d?.uf) setLocation({ cep: d.cep, uf: d.uf, city: d.city });
+        }).catch(() => {});
+      }
     } catch {
       /* armazenamento indisponível */
     }

@@ -1,4 +1,6 @@
 import { aliexpress } from "./aliexpress";
+import { ebay } from "./ebay";
+import { BRAVE_PLATFORM_CONNECTORS, braveDiscovery } from "../discovery/connectors";
 import { enjoei, facebook, olx } from "./classificados";
 import { amazon } from "./amazon";
 import { feeds } from "./feed";
@@ -8,7 +10,14 @@ import { shopee } from "./shopee";
 import type { Connector } from "./types";
 
 /** Ordem = prioridade das fontes. */
-export const CONNECTORS: Connector[] = [olx, mercadolivre, facebook, amazon, enjoei, shopee, kabum, aliexpress, feeds];
+export const CONNECTORS: Connector[] = [
+  // APIs e integrações diretas (preço confirmado)
+  kabum, mercadolivre, amazon, shopee, ebay, aliexpress, feeds,
+  // descoberta via índice da Brave (preço indexado, não confirmado)
+  ...BRAVE_PLATFORM_CONNECTORS, braveDiscovery,
+  // sem integração autorizada de busca direta
+  olx, facebook, enjoei,
+];
 
 export function activeConnectors(): Connector[] {
   return CONNECTORS.filter((c) => c.status().configured);

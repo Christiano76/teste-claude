@@ -55,7 +55,7 @@ export function OfferView() {
           </div>
 
           <div className="flex gap-2">
-            <a href={o.url} target="_blank" rel="noopener noreferrer nofollow" className="btn btn-primary flex-1 !py-3">Comprar na {o.storeName}</a>
+            <a href={o.url} target="_blank" rel="noopener noreferrer nofollow" className="btn btn-primary flex-1 !py-3">Ver oferta em {o.platform ?? o.storeName}</a>
             <FavoriteButton offerId={o.id} />
           </div>
 
@@ -63,6 +63,20 @@ export function OfferView() {
             <ul className="card p-4 space-y-1.5 text-sm">
               {a.flags.map((f) => <li key={f.code + f.message} className={f.level === "danger" ? "text-bad" : f.level === "warn" ? "text-mid" : "text-muted"}>{f.level === "info" ? "ℹ" : "⚠"} {f.message}</li>)}
             </ul>
+          )}
+
+          {a.usage && (
+            <Section title="Indicado para (estimativa)">
+              <ul className="space-y-1.5 text-sm">
+                {a.usage.map((u) => (
+                  <li key={u.use} className="flex gap-3">
+                    <span className={`chip shrink-0 ${u.level === "adequado" ? "!text-good !border-good/40" : u.level === "limitado" ? "!text-mid !border-mid/40" : u.level === "nao-recomendado" ? "!text-bad !border-bad/40" : ""}`}>{u.level === "adequado" ? "Adequado" : u.level === "limitado" ? "Limitado" : u.level === "nao-recomendado" ? "Não recomendado" : "Não verificável"}</span>
+                    <span><b>{u.use}</b> <span className="text-muted">— {u.note}</span></span>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-[11px] text-faint mt-2">Estimativa por índices relativos de benchmarks públicos agregados (CPU: Ryzen 5 5600 = 100; GPU: RTX 4060 = 100). Não é FPS medido.</p>
+            </Section>
           )}
 
           <Section title="Três notas independentes">
@@ -113,6 +127,7 @@ export function OfferView() {
               {a.cost.icms != null && <Row k="ICMS (est.)" v={brl(a.cost.icms, 2)} />}
               <Row k="Total" v={<b className="num">{brl(a.cost.total, 2)}{!a.cost.totalIsComplete && <span className="text-faint font-normal"> + itens não verificados</span>}</b>} />
               <Row k="Entrega" v={deliveryText(o)} />
+              <Row k="Verificação do preço" v={o.verification === "api" ? "Confirmado na fonte" : `Não confirmado — ${o.priceSource ?? "índice do buscador"}`} />
               <Row k="Modalidade de envio" v={a.delivery.label} />
               <Row k="Programa de envio" v={a.delivery.program} />
               <Row k="Proteção ao comprador" v={a.delivery.protection} />

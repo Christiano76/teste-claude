@@ -8,12 +8,15 @@ import { useLocation } from "./Providers";
 
 interface Facets { conditions: { value: string; count: number }[]; ufs: { value: string; count: number }[]; stores: { value: string; count: number }[]; brands: { value: string; count: number }[]; cpus: { value: string; count: number }[]; gpus: { value: string; count: number }[]; resolutions: { value: string; count: number }[] }
 interface SourceRun { source: string; name: string; status: string; items: number; error?: string }
-interface Resp { total: number; page: number; pageSize: number; results: AnalyzedOffer[]; combos?: ComboResult[]; kitInsight?: string | null; tiers?: { id: string; label: string; count: number }[]; needsCep?: boolean; facets: Facets; sources: SourceRun[]; market: { pc: { source: string; n: number }; monitor: { source: string; n: number } }; location: { uf: string; city: string } | null; error?: string }
+interface Progress { id: string; name: string; status: "pendente" | "consultando" | "ok" | "cached" | "error"; items: number; error?: string | null; kind: string }
+interface Listing { url: string; platform: string; title: string; image_url: string | null; location: string | null; indexed_at: string | null; last_seen_at: string }
+interface Resp { hiddenDefects?: number; counts?: { confirmed: number; indexed: number }; total: number; page: number; pageSize: number; results: AnalyzedOffer[]; combos?: ComboResult[]; kitInsight?: string | null; tiers?: { id: string; label: string; count: number }[]; needsCep?: boolean; facets: Facets; sources: SourceRun[]; market: { pc: { source: string; n: number }; monitor: { source: string; n: number } }; location: { uf: string; city: string } | null; error?: string }
 
 const TITLES: Record<SearchMode, { title: string; sub: string; placeholder: string }> = {
-  pc: { title: "PC Gamer", sub: "Computadores completos, prontos para uso.", placeholder: "Ex.: RTX 4060, Ryzen 5 5600, 32GB…" },
-  "pc-monitor": { title: "PC Gamer + Monitor", sub: "Kits e combinações compradas separadamente, com custo total.", placeholder: "Ex.: RTX 5060, i5 12400F…" },
-  monitor: { title: "Monitor", sub: "Monitores gamer e convencionais.", placeholder: "Ex.: 27 QHD 180Hz IPS…" },
+  pc: { title: "PC completo", sub: "Computadores completos novos, usados, de escritório, gamers e recondicionados — informe o orçamento.", placeholder: "Ex.: i5, gamer, Dell Optiplex, GTX 1650…" },
+  "pc-monitor": { title: "PC + monitor", sub: "Kits e combinações de anúncios separados dentro do orçamento total.", placeholder: "Ex.: i5, Ryzen, 24 polegadas…" },
+  monitor: { title: "Monitor", sub: "Monitores novos e usados: resolução, tamanho, frequência e painel.", placeholder: "Ex.: 24 Full HD 75Hz, 27 QHD…" },
+  peca: { title: "Peças", sub: "Placas de vídeo, processadores, memórias, SSDs, placas-mãe e fontes — comparadas com o mesmo modelo.", placeholder: "Ex.: GTX 1650, Ryzen 5 5600, 16GB DDR4, SSD 480…" },
   kit: { title: "Kits de hardware", sub: "Processador + placa-mãe (± memória), novos e usados.", placeholder: "Ex.: Ryzen 5 5600, B550, 16GB…" },
   "garimpo-entrega": { title: "Garimpo Extremo com entrega", sub: "PCs até R$ 500, R$ 700 e R$ 1.000, monitores até R$ 200 e kits muito baratos, só com envio confirmado para você. Custo total = produto + frete + taxas conhecidas.", placeholder: "Ex.: i5, GTX, 24…" },
 };
@@ -21,12 +24,14 @@ const TITLES: Record<SearchMode, { title: string; sub: string; placeholder: stri
 const STORE_SLUG: Record<string, string> = { "KaBuM!": "kabum", "Mercado Livre": "mercadolivre", "Amazon Brasil": "amazon-br", Shopee: "shopee", AliExpress: "aliexpress" };
 const slugOf = (name: string) => STORE_SLUG[name] ?? name.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
-const FILTER_KEYS = ["entrega", "tier", "garimpo", "cond", "uf", "seller", "pickup", "q", "minPrice", "maxPrice", "cpu", "gpu", "minRam", "minStorage", "brand", "stores", "freeShipping", "origin", "maxDays", "resolution", "minRefresh", "minScore", "kit", "unconfirmed", "sort", "page"] as const;
+const FILTER_KEYS = ["confirmed", "entrega", "tier", "garimpo", "cond", "uf", "seller", "pickup", "q", "minPrice", "maxPrice", "cpu", "gpu", "minRam", "minStorage", "brand", "stores", "freeShipping", "origin", "maxDays", "resolution", "minRefresh", "minScore", "kit", "unconfirmed", "sort", "page"] as const;
 type FilterKey = (typeof FILTER_KEYS)[number];
 
 export function SearchView() {
   const { modo } = useParams<{ modo: string }>();
-  const mode: SearchMode = modo === "monitor" || modo === "pc-monitor" || modo === "kit" || modo === "garimpo-entrega" ? modo : "pc";
+  const mode: SearchMode = modo === "monitor" || modo === "pc-monitor" || modo === "kit" || modo === "peca" || modo === "garimpo-entrega" ? modo : "pc";
+  const [progress, setProgress] = useState<Progress[]>([]);
+  const [listings, setListings] = useState<Listing[]>([]);
   const sp = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -62,12 +67,34 @@ export function SearchView() {
     if (refreshTick > 0) qs.set("refresh", "1");
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
-    fetch(`/api/search?${qs}`, { signal: ctrl.signal })
-      .then((r) => r.json())
-      .then((d: Resp) => {
-        setData(d);
-        setLoading(false);
-      })
+    // 1) consulta cada fonte em paralelo mostrando o progresso; 2) analisa e classifica
+    (async () => {
+      const src = await fetch("/api/sources", { signal: ctrl.signal }).then((r) => r.json()) as { connectors: { id: string; name: string; configured: boolean; kind: string }[] };
+      const active = src.connectors.filter((c) => c.configured);
+      const prog: Progress[] = active.map((c) => ({ id: c.id, name: c.name.replace(/ \(.*\)$/, ""), status: "pendente", items: 0, kind: c.kind }));
+      const unavailable = src.connectors.filter((c) => !c.configured).map((c) => ({ id: c.id, name: c.name.replace(/ \(.*\)$/, ""), status: "error" as const, items: 0, kind: c.kind, error: "indisponível (sem integração/credenciais)" }));
+      setProgress([...prog, ...unavailable]);
+      const update = (id: string, patch: Partial<Progress>) => setProgress((p) => p.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+      const queue = [...prog];
+      const worker = async () => {
+        for (let it = queue.shift(); it; it = queue.shift()) {
+          update(it.id, { status: "consultando" });
+          try {
+            const r = await fetch("/api/collect", { method: "POST", signal: ctrl.signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: it.id, mode, q: filters.q, cep: location?.cep, maxPrice: filters.maxPrice ? Number(filters.maxPrice) : undefined, refresh: refreshTick > 0 }) }).then((x) => x.json());
+            update(it.id, { status: r.status ?? "error", items: r.items ?? 0, error: r.error ?? r.issues?.join(", ") ?? null });
+          } catch (e) {
+            if ((e as Error).name === "AbortError") return;
+            update(it.id, { status: "error", error: String(e) });
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: 6 }, worker));
+      const d = (await fetch(`/api/search?${qs}`, { signal: ctrl.signal }).then((r) => r.json())) as Resp;
+      setData(d);
+      setLoading(false);
+      const cat = mode === "pc-monitor" || mode === "garimpo-entrega" ? "pc" : mode;
+      fetch(`/api/listings?category=${cat}&q=${encodeURIComponent(filters.q ?? "")}`, { signal: ctrl.signal }).then((r) => r.json()).then((l) => setListings(l.items ?? [])).catch(() => {});
+    })()
       .catch((e) => {
         if (e.name !== "AbortError") {
           setData({ error: String(e) } as Resp);
@@ -88,7 +115,7 @@ export function SearchView() {
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{t.title}</h1>
           <p className="text-muted text-sm mt-1">{t.sub}{location ? ` Resultados personalizados para ${location.city || location.uf}/${location.uf}.` : " Informe o CEP no topo para personalizar frete e impostos."}</p>
         </div>
-        <SearchBox initial={filters.q ?? ""} placeholder={t.placeholder} onSubmit={(q) => setFilter({ q })} />
+        <SearchBox initial={filters.q ?? ""} budget={filters.maxPrice ?? ""} placeholder={t.placeholder} onSubmit={(q, b) => setFilter({ q, maxPrice: b || null })} />
       </div>
 
       {mode === "garimpo-entrega" && (
@@ -108,7 +135,7 @@ export function SearchView() {
           <span className="block text-xs text-muted mt-1">Só anúncios pelo menos 20% abaixo da média de anúncios comparáveis no mesmo estado (novos, usados, seminovos, recondicionados), com dados suficientes e sem alto risco. Máquinas obsoletas ficam de fora.</span>
         </button>
       )}
-      <SourcesStrip data={data} loading={loading} onRefresh={() => setRefreshTick((x) => x + 1)} />
+      <ProgressPanel progress={progress} loading={loading} onRefresh={() => setRefreshTick((x) => x + 1)} />
 
       <div className="flex gap-6 mt-5">
         <aside className={`${drawer ? "fixed inset-0 z-40 bg-bg/95 backdrop-blur p-4 overflow-y-auto" : "hidden"} lg:block lg:static lg:bg-transparent lg:p-0 lg:w-64 shrink-0`}>
@@ -124,9 +151,10 @@ export function SearchView() {
             <button className="lg:hidden btn btn-ghost" onClick={() => setDrawer(true)}>Filtros{Object.keys(filters).filter((k) => !["sort", "page", "q"].includes(k)).length ? ` (${Object.keys(filters).filter((k) => !["sort", "page", "q"].includes(k)).length})` : ""}</button>
             <span className="text-sm text-muted hidden sm:block num">{loading ? "Buscando e analisando ofertas…" : data?.error ? "" : `${data?.total.toLocaleString("pt-BR")} ${mode === "pc-monitor" ? "conjuntos" : "ofertas"} analisadas`}</span>
             {mode !== "pc-monitor" && (
-              <select className="input !w-auto" value={filters.sort ?? "score"} onChange={(e) => setFilter({ sort: e.target.value === "score" ? null : e.target.value })} aria-label="Ordenar">
-                <option value="score">Melhor nota</option>
-                <option value="price">Menor custo final</option>
+              <select className="input !w-auto" value={filters.sort ?? "entrega"} onChange={(e) => setFilter({ sort: e.target.value === "entrega" ? null : e.target.value })} aria-label="Ordenar">
+                <option value="entrega">Entrega verificável + menor custo</option>
+                <option value="price">Menor custo total</option>
+                <option value="score">Melhor nota geral</option>
                 <option value="performance">{mode === "monitor" ? "Melhor qualidade" : "Maior desempenho"}</option>
                 <option value="delivery">Entrega mais rápida</option>
                 <option value="discount">Maior desconto real</option>
@@ -136,6 +164,13 @@ export function SearchView() {
           </div>
 
           {data?.error && <div className="card p-6 text-bad text-sm">Erro ao buscar: {data.error}</div>}
+          {!loading && data && !data.error && (
+            <div className="flex flex-wrap gap-2 mb-4 text-xs">
+              {data.counts && <span className="chip !text-good !border-good/40">{data.counts.confirmed} com preço confirmado na fonte</span>}
+              {data.counts && <span className="chip !text-mid !border-mid/40">{data.counts.indexed} encontrados via buscador (preço não confirmado)</span>}
+              {!!data.hiddenDefects && <span className="chip !text-bad !border-bad/40">{data.hiddenDefects} anúncio(s) com defeito ocultado(s)</span>}
+            </div>
+          )}
           {mode === "pc-monitor" && data?.kitInsight && !loading && <div className="card p-4 mb-4 text-sm border-accent/30"><span className="text-accent font-semibold">Kit ou separado? </span>{data.kitInsight}</div>}
 
           {loading ? (
@@ -155,6 +190,22 @@ export function SearchView() {
               <button className="btn btn-ghost" disabled={page >= pages} onClick={() => setFilter({ page: String(page + 1) })}>Próxima →</button>
             </div>
           )}
+          {!loading && listings.length > 0 && (
+            <section className="mt-10">
+              <h2 className="font-semibold">Anúncios encontrados sem preço no índice ({listings.length})</h2>
+              <p className="text-xs text-muted mb-3">O buscador encontrou estes anúncios individuais, mas sem preço publicado nos dados indexados. Abra o anúncio para conferir preço, estado e entrega.</p>
+              <ul className="card divide-y divide-line text-sm">
+                {listings.slice(0, 30).map((l) => (
+                  <li key={l.url} className="p-3 flex items-center gap-3">
+                    <span className="chip shrink-0">{l.platform}</span>
+                    <span className="flex-1 min-w-0 truncate" title={l.title}>{l.title}</span>
+                    {l.location && <span className="text-faint text-xs shrink-0 hidden sm:inline">{l.location}</span>}
+                    <a className="btn btn-ghost !py-1 !px-2 text-xs shrink-0" href={l.url} target="_blank" rel="noopener noreferrer nofollow">Ver oferta</a>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
           {!loading && data?.market && (
             <p className="text-[11px] text-faint mt-8">
               Custo-benefício calculado contra a curva de preço de mercado ({mode === "monitor" ? data.market.monitor.source === "dados-coletados" ? `${data.market.monitor.n} monitores coletados` : "curva de referência" : data.market.pc.source === "dados-coletados" ? `${data.market.pc.n} PCs coletados` : "curva de referência"}). Desempenho é estimativa baseada em benchmarks públicos agregados, não FPS medido.
@@ -166,37 +217,39 @@ export function SearchView() {
   );
 }
 
-function SearchBox({ initial, placeholder, onSubmit }: { initial: string; placeholder: string; onSubmit: (q: string) => void }) {
-  const [q, setQ] = useState(initial);
+function ProgressPanel({ progress, loading, onRefresh }: { progress: Progress[]; loading: boolean; onRefresh: () => void }) {
+  if (!progress.length) return null;
+  const done = progress.filter((p) => p.status !== "pendente" && p.status !== "consultando").length;
+  const label = (p: Progress) =>
+    p.status === "pendente" ? "na fila" : p.status === "consultando" ? "consultando…" : p.status === "error" ? (p.error?.startsWith("indisponível") ? "fonte indisponível" : "erro") : p.status === "cached" ? "dados recentes" : `${p.items} anúncio(s)`;
+  const cls = (p: Progress) =>
+    p.status === "error" ? "!text-bad !border-bad/40" : p.status === "consultando" || p.status === "pendente" ? "!text-muted" : p.kind === "search-index" ? "!text-mid !border-mid/40" : "!text-good !border-good/40";
   return (
-    <form className="flex gap-2 w-full sm:w-96" onSubmit={(e) => { e.preventDefault(); onSubmit(q.trim()); }}>
-      <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={placeholder} aria-label="Buscar" />
+    <details className="card p-3 text-xs" open={loading}>
+      <summary className="cursor-pointer flex items-center gap-3">
+        <span className="font-semibold text-sm">{loading ? `Consultando fontes… ${done}/${progress.length}` : `Fontes consultadas: ${progress.filter((p) => p.status === "ok" || p.status === "cached").length} responderam`}</span>
+        {loading && <span className="flex-1 h-1.5 rounded-full bg-surface-2 overflow-hidden"><span className="block h-full bg-accent transition-all" style={{ width: `${(done / progress.length) * 100}%` }} /></span>}
+        {!loading && <button type="button" className="text-accent ml-auto" onClick={(e) => { e.preventDefault(); onRefresh(); }}>atualizar agora</button>}
+      </summary>
+      <div className="flex flex-wrap gap-1.5 mt-3">
+        {progress.map((p) => <span key={p.id} className={`chip ${cls(p)}`} title={p.error ?? undefined}>{p.name} · {label(p)}</span>)}
+      </div>
+      <p className="text-faint mt-2">Verde: preço vindo direto da fonte. Amarelo: anúncio encontrado pelo buscador (Brave), preço do índice sem confirmação. Vermelho: fonte indisponível ou com erro.</p>
+    </details>
+  );
+}
+
+function SearchBox({ initial, budget, placeholder, onSubmit }: { initial: string; budget: string; placeholder: string; onSubmit: (q: string, budget: string) => void }) {
+  const [q, setQ] = useState(initial);
+  const [b, setB] = useState(budget);
+  return (
+    <form className="flex flex-wrap sm:flex-nowrap gap-2 w-full sm:w-[34rem]" onSubmit={(e) => { e.preventDefault(); onSubmit(q.trim(), b.replace(/\D/g, "")); }}>
+      <input className="input flex-1 min-w-0" value={q} onChange={(e) => setQ(e.target.value)} placeholder={placeholder} aria-label="O que procurar" />
+      <input className="input num !w-36" inputMode="numeric" value={b} onChange={(e) => setB(e.target.value.replace(/\D/g, ""))} placeholder="Orçamento R$" aria-label="Orçamento máximo em reais" />
       <button className="btn btn-primary">Buscar</button>
     </form>
   );
 }
-
-function SourcesStrip({ data, loading, onRefresh }: { data: Resp | null; loading: boolean; onRefresh: () => void }) {
-  if (!data?.sources?.length && !loading) return null;
-  return (
-    <div className="flex flex-wrap items-center gap-2 text-xs">
-      <span className="text-faint">Fontes consultadas:</span>
-      {loading && !data && <span className="chip">consultando…</span>}
-      {data?.sources?.filter((s, i, arr) => arr.findIndex((x) => x.source === s.source) === i).map((s) => {
-        const runs = data.sources.filter((x) => x.source === s.source);
-        const err = runs.find((r) => r.status === "error");
-        const items = runs.reduce((n, r) => n + r.items, 0);
-        return (
-          <span key={s.source} className={`chip ${err ? "!text-bad !border-bad/40" : "!text-good !border-good/30"}`} title={err?.error}>
-            {s.name.split(" (")[0]} · {err ? "erro" : runs.every((r) => r.status === "cached") ? "dados recentes" : `${items} novas`}
-          </span>
-        );
-      })}
-      <button className="text-accent hover:underline disabled:opacity-50" disabled={loading} onClick={onRefresh}>atualizar agora</button>
-    </div>
-  );
-}
-
 function Filters({ mode, f, facets, set }: { mode: SearchMode; f: Partial<Record<FilterKey, string>>; facets?: Facets; set: (p: Partial<Record<FilterKey, string | null>>) => void }) {
   const storesSel = new Set((f.stores ?? "").split(",").filter(Boolean));
   const isPc = mode !== "monitor";
@@ -209,6 +262,7 @@ function Filters({ mode, f, facets, set }: { mode: SearchMode; f: Partial<Record
           <NumInput placeholder="máx." value={f.maxPrice} onCommit={(v) => set({ maxPrice: v })} />
         </div>
       </Group>
+      <Check label="Somente preço confirmado na fonte" checked={!!f.confirmed} onChange={(v) => set({ confirmed: v ? "1" : null })} />
       <Group label="Estado de conservação">
         <div className="space-y-1.5">
           {(["novo", "seminovo", "usado", "recondicionado", "mostruario", "nao-informado"] as const).map((c) => {
