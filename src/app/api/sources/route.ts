@@ -16,9 +16,9 @@ export async function GET() {
       `SELECT category, count(*) AS offers, count(DISTINCT store_slug) AS stores, 0 AS snapshots FROM offers WHERE active GROUP BY category`,
     );
     const perSource = await query<{ source: string; active: string; used: string; ship: string; last_seen: Date | null }>(
-      `SELECT source, count(*) FILTER (WHERE active AND available IS TRUE) AS active,
-              count(*) FILTER (WHERE active AND available IS TRUE AND condition IN ('usado','seminovo','recondicionado','mostruario')) AS used,
-              count(*) FILTER (WHERE active AND available IS TRUE AND ship_available IS TRUE) AS ship,
+      `SELECT source, count(*) FILTER (WHERE active AND available IS NOT FALSE) AS active,
+              count(*) FILTER (WHERE active AND available IS NOT FALSE AND condition IN ('usado','seminovo','recondicionado','mostruario')) AS used,
+              count(*) FILTER (WHERE active AND available IS NOT FALSE AND ship_available IS TRUE) AS ship,
               max(last_seen_at) AS last_seen
        FROM offers GROUP BY source`,
     );

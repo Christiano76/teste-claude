@@ -20,6 +20,10 @@ function slim(a: AnalyzedOffer) {
     tier: deliveryTier(a),
     dl: { m: x.delivery.mode, ok: x.delivery.deliverable, l: x.delivery.label, pg: x.delivery.program, pt: x.delivery.protection },
     ship: o.shipAvailable, scope: o.shipScope,
+    ver: o.verification, psrc: o.priceSource, idx: o.indexedAt, plat: o.platform,
+    use: x.usage?.map((u) => [u.use, u.level, u.note]) ?? null,
+    part: o.specs.part ? { k: o.specs.part.kind, m: o.specs.part.model } : null,
+    near: !!x.delivery.nearBuyer,
     comp: x.components.map((k) => [k.label, k.weight, k.value, k.detail]),
     flags: x.flags.map((f) => [f.level, f.message]),
     perf: x.performance ? { gi: x.performance.gamingIndex, tier: x.performance.tierLabel, res: x.performance.perResolution, bn: x.performance.bottleneck } : null,
@@ -31,13 +35,26 @@ function slim(a: AnalyzedOffer) {
   };
 }
 (async () => {
-  const pcs = dedupe(await analyzeOffers(await findOffers({ category: "pc", limit: 3000 }), null)).sort((a, b) => b.analysis.score - a.analysis.score);
-  const mons = dedupe(await analyzeOffers(await findOffers({ category: "monitor", limit: 3000 }), null)).sort((a, b) => b.analysis.score - a.analysis.score);
-  const kits = dedupe(await analyzeOffers(await findOffers({ category: "kit", limit: 3000 }), null)).sort((a, b) => b.analysis.score - a.analysis.score);
+  const loc0 = { cep: "71572811", uf: "DF", city: "Brasília", source: "viacep" };
+  const both0 = async (category: "pc" | "monitor") => {
+    const [c, i] = await Promise.all([findOffers({ category, limit: 3000, verification: "api" }), findOffers({ category, limit: 1500, verification: "indice-busca" })]);
+    return dedupe(await analyzeOffers([...c, ...i], loc0)).filter((a) => !a.analysis.flags.some((f) => f.code === "defect")).sort((a, b) => b.analysis.score - a.analysis.score);
+  };
+  const pcs = await both0("pc");
+  const mons = await both0("monitor");
+  const loc = { cep: "71572811", uf: "DF", city: "Brasília", source: "viacep" };
+  const both = async (category: "pc" | "monitor" | "kit" | "peca") => {
+    const [c, i] = await Promise.all([findOffers({ category, limit: 3000, verification: "api" }), findOffers({ category, limit: 1500, verification: "indice-busca" })]);
+    return dedupe(await analyzeOffers([...c, ...i], loc)).filter((a) => !a.analysis.flags.some((f) => f.code === "defect")).sort((a, b) => b.analysis.score - a.analysis.score);
+  };
+  const kits = await both("kit");
+  const pecas = await both("peca");
+  const listings = await query<{ url: string; platform: string; title: string; category: string; location: string | null; indexed_at: Date | null }>(
+    "SELECT url, platform, title, category, location, indexed_at FROM discovered_listings WHERE last_seen_at > now() - interval '3 days' ORDER BY last_seen_at DESC LIMIT 400");
   const per = await query<{ source: string; active: string; used: string; ship: string; last_seen: Date | null }>(
-    `SELECT source, count(*) FILTER (WHERE active AND available IS TRUE) AS active,
-       count(*) FILTER (WHERE active AND available IS TRUE AND condition IN ('usado','seminovo','recondicionado','mostruario')) AS used,
-       count(*) FILTER (WHERE active AND available IS TRUE AND ship_available IS TRUE) AS ship, max(last_seen_at) AS last_seen FROM offers GROUP BY source`);
+    `SELECT source, count(*) FILTER (WHERE active AND available IS NOT FALSE) AS active,
+       count(*) FILTER (WHERE active AND available IS NOT FALSE AND condition IN ('usado','seminovo','recondicionado','mostruario')) AS used,
+       count(*) FILTER (WHERE active AND available IS NOT FALSE AND ship_available IS TRUE) AS ship, max(last_seen_at) AS last_seen FROM offers GROUP BY source`);
   const errs = await query<{ source: string; error: string; finished_at: Date }>(`SELECT DISTINCT ON (source) source, error, finished_at FROM search_runs WHERE status='error' ORDER BY source, started_at DESC`);
   const runs = await query<{ source: string; status: string }>(`SELECT DISTINCT ON (source) source, status FROM search_runs WHERE status <> 'running' ORDER BY source, started_at DESC`);
   const sources = CONNECTORS.map((c) => {
@@ -56,10 +73,10 @@ function slim(a: AnalyzedOffer) {
   const { combos, kitInsight } = buildCombos(pcs, mons);
   const [pcC, monC] = [await marketCurve("pc"), await marketCurve("monitor")];
   const r = await radar(48);
-  const known = new Set([...pcs, ...mons, ...kits].map((a) => a.offer.id));
+  const known = new Set([...pcs, ...mons, ...kits, ...pecas].map((a) => a.offer.id));
   const data = {
     at: new Date().toISOString(), pcCurveN: pcC.n, monCurveN: monC.n,
-    pcs: pcs.map(slim), mons: mons.map(slim), kits: kits.map(slim), kitInsight, sources, unsupported: UNSUPPORTED_STORES,
+    pcs: pcs.map(slim), mons: mons.map(slim), kits: kits.map(slim), pecas: pecas.map(slim), listings: listings.map((l) => ({ u: l.url, p: l.platform, t: l.title, c: l.category, loc: l.location })), kitInsight, sources, unsupported: UNSUPPORTED_STORES,
     combos: combos.slice(0, 60).map((c) => ({ kind: c.kind, pc: c.pc.offer.id, mon: c.monitor?.offer.id ?? null, total: c.total, complete: c.totalIsComplete, s: c.score, v: c.verdict, notes: c.matchNotes })),
     radar: {
       drops: r.priceDrops.filter((d) => known.has(d.item.offer.id)).map((d) => ({ id: d.item.offer.id, prev: d.previous, cur: d.current, at: d.at })),

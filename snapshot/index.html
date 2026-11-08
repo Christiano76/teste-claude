@@ -14,6 +14,9 @@
   --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
 }
 * { box-sizing: border-box; }
+:root[data-pch="light"] { color-scheme: light; --bg: #f5f7fa; --surface: #ffffff; --surface-2: #eef1f5; --line: #dde3ea; --line-strong: #c4ccd6; --fg: #111820; --muted: #4d5a6a; --faint: #7a8696; --accent: #0d9488; --accent-2: #3b5bdb; --good: #15803d; --mid: #b45309; --bad: #be123c; --img: #ffffff; --on-accent: #ffffff; }
+:root[data-pch="light"] body { background-image: none; }
+:root[data-pch="light"] header.top { background: rgba(245,247,250,.9); }
 body { background: var(--bg); color: var(--fg); font: 14px/1.5 var(--body);
   background-image: radial-gradient(1100px 480px at 90% -10%, rgba(46,230,197,.07), transparent 60%), radial-gradient(900px 400px at -10% 0%, rgba(91,140,255,.07), transparent 60%); background-attachment: fixed; }
 body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
@@ -174,6 +177,14 @@ table.spec td:first-child { color: var(--muted); width: 44%; padding-right: 12px
 ul.flags { margin: 0; padding: 0; list-style: none; display: grid; gap: 5px; font-size: 13px; }
 .lvl-danger { color: var(--bad); } .lvl-warn { color: var(--mid); } .lvl-info { color: var(--muted); }
 .cep { display: flex; gap: 6px; align-items: center; }
+.themebtn { background: none; border: 1px solid var(--line); border-radius: 9px; color: var(--muted); padding: 6px 9px; cursor: pointer; }
+.chip.ok { color: var(--good); border-color: rgba(52,211,153,.4); }
+.chip.warnc { color: var(--mid); border-color: rgba(251,191,36,.4); }
+.budget { width: 130px !important; flex: none; }
+.lst { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.lst li { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-top: 1px solid var(--line); font-size: 13px; }
+.lst li:first-child { border-top: 0; }
+.lst .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cep input { width: 118px; }
 .cep span { font-size: 12px; color: var(--muted); }
 .tiers { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
@@ -209,9 +220,10 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
       <span>PC <b>Hunter</b></span>
     </a>
     <nav class="tabs" aria-label="Seções">
-      <a href="#pc" data-tab="pc">PC Gamer</a>
+      <a href="#pc" data-tab="pc">PC completo</a>
       <a href="#pc-monitor" data-tab="pc-monitor">PC + Monitor</a>
       <a href="#monitor" data-tab="monitor">Monitor</a>
+      <a href="#pecas" data-tab="pecas">Peças</a>
       <a href="#kit" data-tab="kit">Kits</a>
       <a href="#garimpo" data-tab="garimpo" class="gar">Garimpo Extremo</a>
       <a href="#entrega" data-tab="entrega" class="gar">Garimpo c/ entrega</a>
@@ -220,6 +232,7 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
       <a href="#fontes" data-tab="fontes">Fontes</a>
     </nav>
     <form class="cep" id="cepForm" style="margin-left:auto"><input class="input num" id="cep" inputmode="numeric" maxlength="9" placeholder="Seu CEP" aria-label="Seu CEP"><button class="btn btn-ghost" type="submit" style="padding:7px 10px">OK</button><span id="cepUf"></span></form>
+    <button class="themebtn" id="themeBtn" type="button" aria-label="Alternar tema claro/escuro">☀</button>
     <span class="stamp" id="stamp" style="margin-left:0">carregando dados…</span>
   </div>
 </header>
@@ -237,12 +250,14 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
       <div id="garBox" style="margin-bottom:14px"></div>
       <div class="bar" id="bar">
         <form class="search" id="searchForm">
-          <input class="input" id="q" type="search" placeholder="Ex.: RTX 4060, Ryzen 5 5600, 27 QHD…" aria-label="Buscar nas ofertas">
+          <input class="input" id="q" type="search" placeholder="Ex.: i5, gamer, Dell Optiplex, 24 Full HD…" aria-label="Buscar nas ofertas">
+          <input class="input num budget" id="budget" inputmode="numeric" placeholder="até R$" aria-label="Orçamento máximo em reais">
           <button class="btn btn-primary" type="submit">Buscar</button>
         </form>
         <button class="btn btn-ghost only-mobile" id="openFilters" type="button">Filtros</button>
         <span class="count num" id="count"></span>
         <select class="input" id="sort" style="width:auto" aria-label="Ordenar">
+          <option value="entrega">Entrega verificável + menor custo</option>
           <option value="score">Melhor nota geral</option>
           <option value="discount">Maior desconto real</option>
           <option value="value">Melhor custo-benefício</option>
@@ -284,13 +299,14 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
   const TIERS = [["pc-500", "PC até R$ 500"], ["pc-700", "PC até R$ 700"], ["pc-1000", "PC até R$ 1.000"], ["monitor-200", "Monitor até R$ 200"], ["kit-barato", "Kit de hardware até R$ 400"]];
 
   let D = null, IMG = {}, byId = new Map();
-  const state = { mode: "pc", q: "", sort: "score", shown: 24, f: {}, gar: false, tier: "" };
+  const state = { mode: "pc", q: "", sort: "score", shown: 24, f: {}, gar: false, tier: "", budget: 0 };
   let favs = new Set();
   try { favs = new Set(JSON.parse(localStorage.getItem("pch_favs") || "[]")); } catch (e) {}
   const saveFavs = () => { try { localStorage.setItem("pch_favs", JSON.stringify([...favs])); } catch (e) {} };
 
   const MODES = {
-    pc: { h: "PC Gamer", sub: "Computadores completos novos, usados, seminovos e recondicionados. Identificamos CPU, GPU, RAM, armazenamento, placa-mãe e fonte, estimamos o desempenho e comparamos com anúncios equivalentes." },
+    pecas: { h: "Peças", sub: "Placas de vídeo, processadores, memórias, SSDs e placas-mãe — novas e usadas, comparadas com o mesmo modelo." },
+    pc: { h: "Garimpe seu próximo PC pelo menor preço possível.", sub: "PCs completos novos, usados, de escritório, gamers e recondicionados — de lojas e de pessoas físicas (OLX, Mercado Livre e lojas pequenas via Brave Search). Informe o orçamento ao lado da busca." },
     "pc-monitor": { h: "PC Gamer + Monitor", sub: "Kits com monitor incluso e combinações de anúncios separados, com o custo total e a comparação kit × separado." },
     monitor: { h: "Monitor", sub: "Monitores novos, usados e recondicionados: resolução, tamanho, painel, frequência e tempo de resposta contra o preço médio de modelos equivalentes." },
     garimpo: { h: "Garimpo Extremo", sub: "Anúncios pelo menos 20% abaixo da média de anúncios comparáveis no mesmo estado de conservação, com dados suficientes e sem alto risco. Preço baixo de máquina obsoleta não entra." },
@@ -326,9 +342,10 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
         <div class="chead"><div class="score">${ring(o.s)}<span class="verdict" style="color:${color(o.s)}">${VERDICT[o.v]}</span></div>
           <button class="fav" data-fav="${o.id}" aria-pressed="${favs.has(o.id)}" aria-label="Salvar nos favoritos"><svg width="16" height="16" viewBox="0 0 24 24" fill="${favs.has(o.id) ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2"><path d="M12 21l-1.4-1.3C5.4 15 2 12 2 8.4 2 5.4 4.4 3 7.4 3c1.7 0 3.4.8 4.6 2.1C13.2 3.8 14.9 3 16.6 3 19.6 3 22 5.4 22 8.4c0 3.6-3.4 6.6-8.6 11.3L12 21z"/></svg></button></div>
         <div class="minis">${mini("Custo-benefício", o.sc.custoBeneficio)}${mini("Desconto real", o.sc.desconto)}${mini("Confiabilidade", o.sc.confiabilidade)}</div>
-        <div class="chips"><span class="chip ${o.cond === "novo" ? "" : "cond"}">${COND[o.cond]}</span><span class="chip risk" style="color:${RISK[o.risk][1]}" title="${esc(o.rr.join(" "))}">${RISK[o.risk][0]}</span>${o.dl.pt ? `<span class="chip" style="color:var(--good);border-color:rgba(52,211,153,.4)" title="${esc(o.dl.pt)}">Proteção ao comprador</span>` : ""}${o.tier ? `<span class="chip" style="color:var(--accent);border-color:rgba(46,230,197,.4)">${esc((TIERS.find((t) => t[0] === o.tier) || [, ""])[1])}</span>` : ""}</div>
+        <div class="chips">${o.ver === "api" ? '<span class="chip ok" title="Preço e estoque lidos diretamente da fonte">Preço confirmado</span>' : `<span class="chip warnc" title="${esc(o.psrc || "Preço do índice do buscador")}">Preço não confirmado</span>`}<span class="chip ${o.cond === "novo" ? "" : "cond"}">${COND[o.cond]}</span><span class="chip risk" style="color:${RISK[o.risk][1]}" title="${esc(o.rr.join(" "))}">${RISK[o.risk][0]}</span>${o.dl.pt ? `<span class="chip" style="color:var(--good);border-color:rgba(52,211,153,.4)" title="${esc(o.dl.pt)}">Proteção ao comprador</span>` : ""}${o.tier ? `<span class="chip" style="color:var(--accent);border-color:rgba(46,230,197,.4)">${esc((TIERS.find((t) => t[0] === o.tier) || [, ""])[1])}</span>` : ""}</div>
         <button class="ctitle" data-open="${o.id}" title="${esc(o.t)}">${esc(o.t)}</button>
         <div class="chips">${specChips(o).slice(0, 6).map((c) => `<span class="chip">${esc(c)}</span>`).join("")}</div>
+        ${o.use ? `<div class="chips">${o.use.filter((u) => u[1] === "adequado" || u[1] === "limitado").map((u) => `<span class="chip ${u[1] === "adequado" ? "ok" : "warnc"}" title="${esc(u[2])} (estimativa)">${esc(u[0])}${u[1] === "limitado" ? " (limitado)" : ""}</span>`).join("")}</div>` : ""}
         ${o.perf && o.perf.tier ? `<p class="tier">${esc(o.perf.tier)}</p>` : ""}
         <div class="price"><div>${o.lp && o.lp > o.pr ? `<div class="old num">${brl(o.lp)}</div>` : ""}<div class="now num">${brl(o.pr)}</div><div class="sub">à vista${o.ip ? " · " + brl(o.ip) + " parcelado" : ""}</div></div>
           ${save ? `<span class="save">−${pct(o.mk.d)}% do mercado</span>` : ""}</div>
@@ -336,13 +353,15 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
           <dt>Média de mercado</dt><dd class="num">${o.mk.p != null ? brl(o.mk.p) + (o.mk.n ? "" : ' <span class="faint">(est.)</span>') : '<span class="faint">não calculável</span>'}</dd>
           ${save ? `<dt>Economia estimada</dt><dd class="num good">${brl(o.mk.sv)}</dd>` : ""}
           <dt>Envio</dt><dd class="${deliverable(o) === true ? "envok" : deliverable(o) === false ? "envno" : "faint"}">${ENV[o.dl.m]}${o.dl.m === "envio-local" && deliverable(o) == null ? " · confirme o CEP" : ""}</dd>
-          <dt>Frete</dt><dd>${o.fs ? "grátis" : '<span class="faint">calcular no anúncio</span>'}</dd>
+          <dt>Frete</dt><dd>${o.fs ? "grátis" : '<span class="faint">Frete não verificado</span>'}</dd>
           <dt>Prazo</dt><dd><span class="faint">não informado pela fonte</span></dd>
           <dt>Vendedor</dt><dd title="${esc(o.se || o.st)}">${esc(o.se || o.st)}${o.loc ? " · " + esc(o.loc) : ""}</dd>
-          <dt>Verificado</dt><dd class="num">${verified(o)}</dd>
+          <dt>${o.ver === "api" ? "Verificado" : "Encontrado"}</dt><dd class="num">${verified(o)}</dd>
+          ${o.idx ? `<dt>Indexado</dt><dd class="num">${new Date(o.idx).toLocaleDateString("pt-BR")}</dd>` : ""}
+          <dt>Origem</dt><dd>${esc(o.plat || o.st)}</dd>
         </dl>
         ${warns.map((f) => `<p class="warn ${f[0] === "danger" ? "danger" : ""}">⚠ ${esc(f[1])}</p>`).join("")}
-        <div class="actions"><a class="btn btn-primary" href="${esc(o.u)}" target="_blank" rel="noopener noreferrer nofollow">Ver anúncio</a><button class="btn btn-ghost" data-open="${o.id}">Análise</button></div>
+        <div class="actions"><a class="btn btn-primary" href="${esc(o.u)}" target="_blank" rel="noopener noreferrer nofollow">Ver oferta</a><button class="btn btn-ghost" data-open="${o.id}">Análise</button></div>
       </div></article>`;
   }
 
@@ -362,7 +381,7 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
   }
 
   // ---------- filtros ----------
-  const baseList = () => state.mode === "monitor" ? D.mons : state.mode === "kit" ? D.kits : state.mode === "garimpo" ? [...D.pcs, ...D.mons, ...D.kits] : state.mode === "entrega" ? [...D.pcs, ...D.mons, ...D.kits].filter((o) => o.tier && deliverable(o) === true) : D.pcs;
+  const baseList = () => state.mode === "monitor" ? D.mons : state.mode === "kit" ? D.kits : state.mode === "pecas" ? D.pecas : state.mode === "garimpo" ? [...D.pcs, ...D.mons, ...D.kits] : state.mode === "entrega" ? [...D.pcs, ...D.mons, ...D.kits].filter((o) => o.tier && deliverable(o) === true) : D.pcs;
   function facet(list, key) {
     const m = new Map(); for (const o of list) { const k = key(o); if (k) m.set(k, (m.get(k) || 0) + 1); }
     return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40);
@@ -377,6 +396,8 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
     const condCount = Object.fromEntries(facet(base, (o) => o.cond));
     let h = `<div class="only-mobile" style="justify-content:space-between;align-items:center"><b>Filtros</b><button class="btn btn-ghost" type="button" id="closeFilters">Aplicar</button></div>
       <div><span class="flabel">${state.mode === "pc-monitor" ? "Orçamento total (R$)" : "Preço (R$)"}</span><div class="row2"><input class="input num" id="f-min" inputmode="numeric" placeholder="sem mínimo" value="${f.min ?? ""}" aria-label="Preço mínimo"><input class="input num" id="f-max" inputmode="numeric" placeholder="máximo" value="${f.max ?? ""}" aria-label="Orçamento máximo"></div></div>`;
+    h += `<label class="check"><input type="checkbox" id="f-conf" ${f.conf ? "checked" : ""}> Somente preço confirmado na fonte</label>`;
+    if (state.mode === "pecas") h += sel("pk", "Tipo de peça", facet(D.pecas, (o) => o.part && PK[o.part.k]), f.pk);
     if (state.mode !== "pc-monitor") {
       h += `<div><span class="flabel">Estado de conservação</span><div class="checks">${Object.keys(COND).map((c) => `<label class="check"><input type="checkbox" data-cond="${c}" ${(f.cond || []).includes(c) ? "checked" : ""}> ${COND[c]}<span class="n">${condCount[c] || 0}</span></label>`).join("")}</div><p class="fine" style="margin-top:4px">Nenhum marcado = todos.</p></div>`;
       h += seg("risk", "Risco", [["", "Todos"], ["baixo", "Baixo"], ["semalto", "Sem alto risco"]], f.risk);
@@ -384,7 +405,7 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
       h += sel("loc", "Localização do vendedor (UF)", facet(base, (o) => o.loc), f.loc);
     }
     h += seg("score", "Nota geral mínima", [["", "Todas"], ["60", "60+"], ["75", "75+"], ["90", "90+"]], f.score);
-    if (state.mode !== "monitor" && state.mode !== "kit") {
+    if (state.mode !== "monitor" && state.mode !== "kit" && state.mode !== "pecas") {
       h += sel("cpu", "Processador", facet(D.pcs, (o) => o.pc && o.pc.cpu && o.pc.cpu.replace(/\s*\(.*\)$/, "")), f.cpu);
       h += sel("gpu", "Placa de vídeo", facet(D.pcs, (o) => o.pc && o.pc.gpu && o.pc.gpu.replace(/\s*\(.*\)$/, "")), f.gpu);
       h += seg("ram", "Memória RAM mínima", [["", "—"], ["8", "8"], ["16", "16"], ["32", "32"], ["64", "64"]], f.ram, " GB");
@@ -416,6 +437,9 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
     if (f.loc && o.loc !== f.loc) return false;
     if (f.fs && !o.fs) return false;
     if (f.pick && !o.pick) return false;
+    if (f.conf && o.ver !== "api") return false;
+    if (f.pk && !(o.part && PK[o.part.k] === f.pk)) return false;
+    if (state.budget && o.total > state.budget) return false;
     if (f.env === "entrega" && deliverable(o) !== true) return false;
     if (f.env === "ambos" && !(deliverable(o) === true || o.pick === true)) return false;
     if (f.env === "retirada" && o.pick !== true) return false;
@@ -434,10 +458,13 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
     }
     return true;
   }
+  const PK = { gpu: "Placa de vídeo", cpu: "Processador", ram: "Memória RAM", ssd: "SSD", "placa-mae": "Placa-mãe", fonte: "Fonte" };
+  const dRank = (o) => (deliverable(o) === true ? 0 : o.near ? 1 : deliverable(o) == null ? 2 : 3);
   const perfOf = (o) => (o.perf && o.perf.gi) ?? o.mq ?? 0;
   function sortList(l) {
     const s = state.sort;
     return l.sort((a, b) =>
+      s === "entrega" ? dRank(a) - dRank(b) || (a.ver === "api" ? 0 : 1) - (b.ver === "api" ? 0 : 1) || a.total - b.total :
       s === "price" ? a.pr - b.pr :
       s === "discount" ? (b.mk.d ?? -9) - (a.mk.d ?? -9) || b.s - a.s :
       s === "value" ? b.sc.custoBeneficio - a.sc.custoBeneficio || a.total - b.total :
@@ -498,7 +525,11 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
       const all = baseList();
       head = `${buyer && buyer.uf ? "" : `<div class="notice" style="margin-bottom:10px;border-color:rgba(251,191,36,.4)"><span>Informe seu CEP no topo: sem ele não dá para confirmar anúncios com envio só local.</span></div>`}<div class="tiers"><button type="button" data-tier="" aria-pressed="${!state.tier}">Todas <b>${all.length}</b></button>${TIERS.map(([id, l]) => `<button type="button" data-tier="${id}" aria-pressed="${state.tier === id}">${l} <b>${all.filter((o) => o.tier === id).length}</b></button>`).join("")}</div><p class="fine" style="margin:0 0 12px;font-size:12.5px;color:var(--muted)">Só anúncios com envio confirmado, disponíveis e sem alto risco. Preço baixo não torna um anúncio confiável: confira o risco e as notas, e pague sempre pela plataforma (nunca PIX por fora ou depósito antecipado).</p>`;
     }
-    out.innerHTML = head + `<div class="grid">${list.slice(0, state.shown).map(card).join("")}</div>` + (list.length > state.shown ? `<div class="more"><button class="btn btn-ghost" id="moreBtn">Mostrar mais (${(list.length - state.shown).toLocaleString("pt-BR")} restantes)</button></div>` : "");
+    const cat = state.mode === "monitor" ? "monitor" : state.mode === "pecas" ? "peca" : state.mode === "kit" ? "kit" : "pc";
+    const words = norm(state.q).split(/\s+/).filter((w) => w.length > 1);
+    const found = state.mode === "favoritos" || state.mode === "entrega" ? [] : D.listings.filter((l) => l.c === cat && words.every((w) => norm(l.t).includes(w))).slice(0, 40);
+    const tail = found.length ? `<h2 style="font:600 17px var(--display);margin:28px 0 6px">Anúncios encontrados sem preço no índice (${found.length})</h2><p class="fine" style="margin-bottom:10px;font-size:12.5px;color:var(--muted)">O buscador encontrou estes anúncios individuais, mas sem preço publicado. Abra para conferir preço, estado e entrega.</p><ul class="lst">${found.map((l) => `<li><span class="chip">${esc(l.p)}</span><span class="t" title="${esc(l.t)}">${esc(l.t)}</span>${l.loc ? `<span class="fine">${esc(l.loc)}</span>` : ""}<a class="btn btn-ghost" style="padding:4px 9px;font-size:12px" href="${esc(l.u)}" target="_blank" rel="noopener noreferrer nofollow">Ver oferta</a></li>`).join("")}</ul>` : "";
+    out.innerHTML = head + `<div class="grid">${list.slice(0, state.shown).map(card).join("")}</div>` + tail + (list.length > state.shown ? `<div class="more"><button class="btn btn-ghost" id="moreBtn">Mostrar mais (${(list.length - state.shown).toLocaleString("pt-BR")} restantes)</button></div>` : "");
   }
 
   function renderRadar(out) {
@@ -538,6 +569,7 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
       <h2>${esc(o.t)}</h2>
       <div class="box" style="grid-template-columns:auto 1fr;align-items:center">${ring(o.s, 76)}<div style="text-align:right">${o.lp && o.lp > o.pr ? `<div class="num" style="font-size:13px;color:var(--faint);text-decoration:line-through">${brl(o.lp, 2)}</div>` : ""}<div class="num" style="font:700 28px var(--display)">${brl(o.pr, 2)}</div><div style="font-size:12px;color:var(--muted)">${VERDICT[o.v]} · à vista${o.ip ? " · " + brl(o.ip, 2) + " parcelado" : ""}</div></div></div>
       <a class="btn btn-primary" style="padding:12px" href="${esc(o.u)}" target="_blank" rel="noopener noreferrer nofollow">Abrir anúncio original</a>
+      ${o.use ? `<div class="box"><h3>Indicado para (estimativa)</h3><ul class="flags">${o.use.map((u) => `<li class="lvl-${u[1] === "adequado" ? "info" : u[1] === "limitado" ? "warn" : "danger"}">${u[1] === "adequado" ? "✓" : u[1] === "limitado" ? "~" : u[1] === "nao-recomendado" ? "✗" : "?"} <b>${esc(u[0])}</b> — ${esc(u[2])}</li>`).join("")}</ul><p class="fine">Estimativa por índices relativos de benchmarks públicos (CPU: Ryzen 5 5600 = 100; GPU: RTX 4060 = 100). Não é FPS medido.</p></div>` : ""}
       <div class="box"><h3>Três notas independentes</h3><div class="three">
         <div><small>Custo-benefício</small><b class="num" style="color:${color(o.sc.custoBeneficio)}">${o.sc.custoBeneficio}</b><p>${esc(o.sn.custoBeneficio)}</p></div>
         <div><small>Desconto real</small><b class="num" style="color:${color(o.sc.desconto)}">${o.sc.desconto ?? "—"}</b><p>${esc(o.sn.desconto)}</p></div>
@@ -550,7 +582,7 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
       <div class="box"><h3>Análise de risco: <span style="color:${RISK[o.risk][1]}">${RISK[o.risk][0]}</span></h3><ul class="flags">${o.rr.map((r) => `<li class="lvl-info">• ${esc(r)}</li>`).join("")}</ul><p class="fine">A análise usa apenas os dados que a fonte publica. Nenhum anúncio é garantido como seguro: confira o vendedor e pague sempre pela plataforma.</p></div>`;
     if (o.flags.length) h += `<div class="box"><h3>Alertas do anúncio</h3><ul class="flags">${o.flags.map((f) => `<li class="lvl-${f[0]}">${f[0] === "info" ? "ℹ" : "⚠"} ${esc(f[1])}</li>`).join("")}</ul></div>`;
     h += `<div class="box"><h3>Detalhe do custo-benefício</h3>${o.comp.filter((c) => c[0] !== "Confiabilidade da loja").map(([l, w, v, d]) => `<div class="meter"><div class="mh"><span>${esc(l)} <small>peso ${w}</small></span><b class="num" style="color:${color(v)}">${v}</b></div><div class="track"><div class="fill" style="width:${v}%;background:${color(v)}"></div></div><p>${esc(d)}</p></div>`).join("")}</div>`;
-    h += `<div class="box"><h3>Custo, entrega e vendedor</h3><table class="spec"><tbody>${row("Preço anunciado (à vista)", brl(o.pr, 2))}${row("Frete", o.fs ? "grátis" : null)}<tr><td>Total</td><td><b class="num">${brl(o.total, 2)}</b>${o.complete ? "" : ' <span class="unv">+ frete a calcular no anúncio</span>'}</td></tr>${row("Modalidade de envio", o.dl.l + (o.dl.m === "envio-local" ? (buyer && buyer.uf ? (deliverable(o) ? " Atende o seu CEP." : " Não atende o seu CEP.") : " Informe o CEP para confirmar.") : ""))}${row("Programa de envio", o.dl.pg)}${row("Proteção ao comprador", o.dl.pt)}${row("Prazo de entrega", null)}${row("Retirada presencial", o.pick == null ? null : o.pick ? "sim" : "não")}${row("Vendedor", o.se || o.st)}${row("Tipo de vendedor", STY[o.sty])}${row("Localização do vendedor", o.loc)}${row("Origem", o.org === "BR" ? "Brasil" : o.org)}${row("Última verificação", verified(o))}</tbody></table></div>`;
+    h += `<div class="box"><h3>Custo, entrega e vendedor</h3><table class="spec"><tbody>${row("Preço anunciado (à vista)", brl(o.pr, 2))}${row("Frete", o.fs ? "grátis" : null)}<tr><td>Total</td><td><b class="num">${brl(o.total, 2)}</b>${o.complete ? "" : ' <span class="unv">+ frete a calcular no anúncio</span>'}</td></tr>${row("Verificação do preço", o.ver === "api" ? "Confirmado na fonte" : "Não confirmado — " + (o.psrc || "índice do buscador"))}${row("Modalidade de envio", o.dl.l + (o.dl.m === "envio-local" ? (buyer && buyer.uf ? (deliverable(o) ? " Atende o seu CEP." : " Não atende o seu CEP.") : " Informe o CEP para confirmar.") : ""))}${row("Programa de envio", o.dl.pg)}${row("Proteção ao comprador", o.dl.pt)}${row("Prazo de entrega", null)}${row("Retirada presencial", o.pick == null ? null : o.pick ? "sim" : "não")}${row("Vendedor", o.se || o.st)}${row("Tipo de vendedor", STY[o.sty])}${row("Localização do vendedor", o.loc)}${row("Origem", o.org === "BR" ? "Brasil" : o.org)}${row("Última verificação", verified(o))}</tbody></table></div>`;
     if (o.perf) h += `<div class="box"><h3>Desempenho estimado em jogos</h3><p style="margin:0">${esc(o.perf.tier || "Não verificável com os dados do anúncio.")}</p>${o.perf.res.length ? `<div class="resgrid">${o.perf.res.map((r) => `<div><small>${r.res}</small>${esc(r.label)}</div>`).join("")}</div>` : ""}${o.perf.bn ? `<p class="warn">${esc(o.perf.bn)}</p>` : ""}<p class="fine">Índice relativo (RTX 4060 + Ryzen 5 5600 ≈ 100) baseado em benchmarks públicos agregados. Não é FPS medido.</p></div>`;
     h += `<div class="box"><h3>Configuração identificada</h3><table class="spec"><tbody>`;
     if (p) h += row("Processador", p.cpu ? p.cpu + (p.sock ? " · " + p.sock : "") : null) + row("Placa de vídeo", p.gpu ? p.gpu + (p.vram ? ` · ${p.vram} GB` : "") : null) + row("Memória RAM", p.ram ? `${p.ram} GB${p.rt ? " " + p.rt : ""}` : null) + row("SSD / HD", stoText(p.sto) || null) + row("Placa-mãe", p.mb ? [p.mb.chipset, p.mb.socket].filter(Boolean).join(" · ") : null) + row("Fonte", p.psu ? [p.psu.watts && p.psu.watts + " W", p.psu.rating].filter(Boolean).join(" · ") : null) + row("Sistema", p.os);
@@ -588,6 +620,7 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
     else if (t.id === "f-min" || t.id === "f-max") state.f[t.id.slice(2)] = t.value.replace(/\D/g, "") || undefined;
     else if (t.dataset && t.dataset.env !== undefined) state.f.env = t.dataset.env || undefined;
     else if (t.id === "f-fs") state.f.fs = t.checked || undefined;
+    else if (t.id === "f-conf") state.f.conf = t.checked || undefined;
     else if (t.id === "f-pick") state.f.pick = t.checked || undefined;
     else if (t.id === "sort") state.sort = t.value;
     else return;
@@ -603,27 +636,35 @@ footer { border-top: 1px solid var(--line); padding-block: 22px; color: var(--fa
     showCep(); if (D) render();
   });
   showCep();
-  $("#searchForm").addEventListener("submit", (e) => { e.preventDefault(); state.q = $("#q").value.trim(); state.shown = 24; render(); });
+  $("#searchForm").addEventListener("submit", (e) => { e.preventDefault(); state.q = $("#q").value.trim(); state.budget = Number($("#budget").value.replace(/\D/g, "")) || 0; state.shown = 24; render(); });
+  try { if (localStorage.getItem("pch_theme") === "light") document.documentElement.dataset.pch = "light"; } catch (e) {}
+  $("#themeBtn").addEventListener("click", () => {
+    const light = document.documentElement.dataset.pch !== "light";
+    document.documentElement.dataset.pch = light ? "light" : "dark";
+    try { localStorage.setItem("pch_theme", light ? "light" : "dark"); } catch (e) {}
+  });
 
   function route() {
     const h = location.hash.slice(1);
     state.mode = MODES[h] ? h : "pc"; state.shown = 24; state.f = {}; state.gar = false; state.tier = "";
-    state.sort = state.mode === "garimpo" ? "discount" : state.mode === "entrega" ? "price" : "score"; $("#sort").value = state.sort;
+    state.sort = state.mode === "garimpo" ? "discount" : state.mode === "entrega" ? "price" : "entrega"; $("#sort").value = state.sort;
     closePanel(); renderFilters(); render();
   }
   window.addEventListener("hashchange", route);
 
   Promise.all([fetch("data.json").then((r) => r.json()), fetch("img.json").then((r) => r.json()).catch(() => ({}))]).then(([d, im]) => {
     D = d; IMG = im;
-    for (const o of [...d.pcs, ...d.mons, ...d.kits]) byId.set(o.id, o);
+    for (const o of [...d.pcs, ...d.mons, ...d.kits, ...d.pecas]) byId.set(o.id, o);
     const at = new Date(d.at);
-    const all = [...d.pcs, ...d.mons, ...d.kits];
+    const all = [...d.pcs, ...d.mons, ...d.kits, ...d.pecas];
+    const idx = all.filter((o) => o.ver !== "api").length;
+    const works = d.sources.filter((c) => c.real === "funcionando").map((c) => c.name.replace(/ \(.*\)$/, ""));
     const used = all.filter((o) => o.cond !== "novo").length;
     const gar = all.filter((o) => o.gar).length;
     const tiered = all.filter((o) => o.tier).length;
     $("#stamp").textContent = `verificado em ${at.toLocaleDateString("pt-BR")} ${at.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
-    $("#notice").innerHTML = `<span class="dot" aria-hidden="true"></span><span><strong>${d.pcs.length.toLocaleString("pt-BR")} PCs, ${d.mons.length.toLocaleString("pt-BR")} monitores e ${d.kits.length.toLocaleString("pt-BR")} kits de hardware reais</strong> (${used} não novos: usados, seminovos, recondicionados) lidos da KaBuM! e do marketplace dela em ${at.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}. <strong>${gar} oportunidades de garimpo</strong> e <strong>${tiered} no garimpo com entrega</strong>.
-      <details><summary>Quais fontes estão ativas?</summary>Ativa: KaBuM! (catálogo e marketplace, incluindo vendedores de usados e recondicionados). Prontas, aguardando credenciais: Mercado Livre (novos e usados, com frete por CEP), Amazon, Shopee, AliExpress e feeds autorizados. Sem integração autorizada: OLX, Facebook Marketplace e Enjoei (verificado — veja a aba Fontes); Pichau, Terabyte, Magalu e GK bloqueiam coleta automatizada. Prazo de entrega e frete por CEP não são informados pela fonte ativa e aparecem como "não informado". Esta página é um retrato da coleta; a versão com servidor atualiza sozinha.</details></span>`;
+    $("#notice").innerHTML = `<span class="dot" aria-hidden="true"></span><span><strong>${all.length.toLocaleString("pt-BR")} anúncios reais</strong> (${d.pcs.length.toLocaleString("pt-BR")} PCs, ${d.mons.length.toLocaleString("pt-BR")} monitores, ${d.pecas.length} peças, ${d.kits.length} kits; ${used} usados/seminovos/recondicionados) de ${works.length} fontes — ${idx.toLocaleString("pt-BR")} encontrados via Brave Search com preço não confirmado — CEP de entrega 71572811 (Brasília/DF), coletados em ${at.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}. <strong>${gar} oportunidades de garimpo</strong> e <strong>${tiered} no garimpo com entrega</strong>.
+      <details><summary>Quais fontes funcionam?</summary>Com resultados nesta coleta: ${works.map(esc).join(", ")}. Preço confirmado só na KaBuM! (API); os demais vêm do índice da Brave Search (preço e frete não verificados — confira no anúncio). Facebook Marketplace: sem acesso autorizado. Detalhes na aba Fontes. Prazo de entrega e frete por CEP não são informados pela fonte ativa e aparecem como "não informado". Esta página é um retrato da coleta; a versão com servidor atualiza sozinha.</details></span>`;
     route();
   }).catch(() => { $("#results").innerHTML = `<div class="empty">Não foi possível carregar as ofertas. Recarregue a página.</div>`; });
 })();

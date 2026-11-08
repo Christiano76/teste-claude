@@ -2,7 +2,7 @@ import json, base64, io, os
 from PIL import Image
 d = json.load(open("snapshot/data.json")); imgs = json.load(open("snapshot/img.json"))
 combo_ids = {c["pc"] for c in d["combos"]} | {c["mon"] for c in d["combos"] if c["mon"]}
-top = {x["id"] for x in d["pcs"][:160]} | {x["id"] for x in d["mons"][:160]} | {x["id"] for x in d.get("kits", [])[:60]} | {x["id"] for x in d["pcs"] + d["mons"] + d.get("kits", []) if x.get("tier")} | combo_ids
+top = {x["id"] for x in d["pcs"][:160]} | {x["id"] for x in d["mons"][:160]} | {x["id"] for x in d.get("kits", [])[:60]} | {x["id"] for x in d.get("pecas", [])[:80]} | {x["id"] for x in d["pcs"] + d["mons"] + d.get("kits", []) if x.get("tier")} | combo_ids
 out = {}
 for k, v in imgs.items():
     raw = base64.b64decode(v.split(",", 1)[1])
